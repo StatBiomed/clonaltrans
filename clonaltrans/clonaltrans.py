@@ -91,7 +91,7 @@ class CloneTranModel(nn.Module):
             lr=self.config.learning_rate,
             amsgrad=True
         )
-        self.scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, step_size=300, gamma=0.5)
+        self.scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, step_size=200, gamma=0.5)
 
     def get_matrix_K(self):
         #* matrix_K (num_clones, num_populations, num_populations)
@@ -133,7 +133,7 @@ class CloneTranModel(nn.Module):
         self.ode_func.eval()
 
         y_pred = odeint(self.ode_func, self.log_N[0], t_eval, method='dopri5')
-        return torch.exp(y_pred)
+        return torch.exp(y_pred) - 1e-6
 
     def tb_writer(
         self,

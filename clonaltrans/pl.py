@@ -51,17 +51,19 @@ def mse_corr(observations, predictions, t_observed, size=20, hue=None, palette=N
         ax_loc.set_xlabel(f'Observations')
         ax_loc.set_ylabel(f'Predictions')
 
-def grid_visual(observations, predictions, t_observed):
+def grid_visual(observations, predictions, t_observed, t_pred=None):
+    if t_pred == None:
+        t_pred = t_observed.clone()
+        
     fig, axes = plt.subplots(observations.shape[1], observations.shape[2], figsize=(30, 20), sharex=True)
     obs = observations.cpu().numpy()
     pred = predictions.detach().cpu().numpy()
-    time = t_observed.cpu().numpy()
 
     for row in range(observations.shape[1]):
         for col in range(observations.shape[2]):
-            axes[row][col].plot(time, obs[:, row, col], label='Observations', color='#8386A8')
-            axes[row][col].plot(time, pred[:, row, col], label='Predictions', color='#D15C6B')
-            axes[row][col].set_xticks(time)
+            axes[row][col].plot(t_observed.cpu().numpy(), obs[:, row, col], label='Observations', color='#8386A8')
+            axes[row][col].plot(t_pred.cpu().numpy(), pred[:, row, col], label='Predictions', color='#D15C6B')
+            axes[row][col].set_xticks(t_observed.cpu().numpy())
     
     fig.subplots_adjust(hspace=0.5)
     fig.subplots_adjust(wspace=0.5)
