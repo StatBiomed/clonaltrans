@@ -3,6 +3,8 @@ from torch import nn
 import matplotlib.pyplot as plt
 import math
 import seaborn as sns
+from scipy.interpolate import interp1d
+import numpy as np
 
 MSE = nn.MSELoss(reduction='mean')
 
@@ -55,15 +57,80 @@ def grid_visual(observations, predictions, t_observed, t_pred=None):
     if t_pred == None:
         t_pred = t_observed.clone()
         
-    fig, axes = plt.subplots(observations.shape[1], observations.shape[2], figsize=(30, 20), sharex=True)
+    fig, axes = plt.subplots(observations.shape[1], observations.shape[2], figsize=(33, 20), sharex=True)
     obs = observations.cpu().numpy()
     pred = predictions.detach().cpu().numpy()
 
     for row in range(observations.shape[1]):
         for col in range(observations.shape[2]):
-            axes[row][col].plot(t_observed.cpu().numpy(), obs[:, row, col], label='Observations', color='#8386A8')
-            axes[row][col].plot(t_pred.cpu().numpy(), pred[:, row, col], label='Predictions', color='#D15C6B')
-            axes[row][col].set_xticks(t_observed.cpu().numpy())
+            if t_pred != None:
+                x, y = t_pred.cpu().numpy(), pred[:, row, col]
+                interpolation = interp1d(x, y, kind='quadratic')
+                x = np.linspace(x.min(), x.max(), 100)
+                y = interpolation(x)
+
+                axes[row][col].plot(
+                    t_pred.cpu().numpy(), 
+                    pred[:, row, col], 
+                    label='Predictions', 
+                    color='#D15C6B',
+                    marker='o',
+                    fillstyle='none',
+                    linestyle='',
+                    markersize=5
+                )
+
+                axes[row][col].plot(
+                    x, 
+                    y, 
+                    label='Quadratic Interpolation', 
+                    color='#CDB3D4',
+                    linestyle='-',
+                )
+
+            axes[row][col].plot(
+                t_observed.cpu().numpy(), 
+                obs[:, row, col], 
+                label='Observations', 
+                color='#2C6975', 
+                marker='o',
+                linestyle='',
+                markersize=5
+            )
+            axes[row][col].set_xticks(t_pred.cpu().numpy(), labels=t_pred.cpu().numpy().astype(int), rotation=45)
+    
+    fig.subplots_adjust(hspace=0.5)
+    fig.subplots_adjust(wspace=0.5)
+    handles, labels = axes[row][col].get_legend_handles_labels()
+    fig.legend(handles, labels, loc='center right', bbox_to_anchor=(1, 0.5), fontsize='x-large')
+
+def grid_visual_interpolate(observations, predictions, t_observed, t_pred=None):
+    if t_pred == None:
+        t_pred = t_observed.clone()
+        
+    fig, axes = plt.subplots(observations.shape[1], observations.shape[2], figsize=(33, 20), sharex=True)
+    obs = observations.cpu().numpy()
+    pred = predictions.detach().cpu().numpy()
+
+    for row in range(observations.shape[1]):
+        for col in range(observations.shape[2]):
+            axes[row][col].plot(
+                t_pred.cpu().numpy(), 
+                pred[:, row, col], 
+                label='Predictions', 
+                color='#CDB3D4',
+            )
+
+            axes[row][col].plot(
+                t_observed.cpu().numpy(), 
+                obs[:, row, col], 
+                label='Observations', 
+                color='#2C6975', 
+                marker='o',
+                linestyle='',
+                markersize=5
+            )
+            axes[row][col].set_xticks(t_observed.cpu().numpy(), labels=t_observed.cpu().numpy().astype(int), rotation=45)
     
     fig.subplots_adjust(hspace=0.5)
     fig.subplots_adjust(wspace=0.5)
