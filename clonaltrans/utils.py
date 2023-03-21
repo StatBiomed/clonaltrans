@@ -35,3 +35,46 @@ def get_topo_obs(
     # array_total[2][array_total[2] < 0] = 0
 
     return torch.tensor(paga.values, dtype=torch.float32, device=device), array_total.to(device)
+
+def set_seed(seed):
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.benchmark = True
+    torch.backends.cudnn.enabled = True
+    torch.autograd.set_detect_anomaly(True)
+
+def init_config_summary(config=None):
+    from .config import Configuration
+    if config == None:
+        print (f'Model configuration file not specified. Default settings will be used.')
+        config = Configuration()
+
+    print ('------> Manully Specified Parameters <------')
+    config_ref = Configuration()
+    dict_input, dict_ref = vars(config), vars(config_ref)
+
+    para_used = []
+    for parameter in dict_ref:
+        if dict_input[parameter] != dict_ref[parameter]:
+            print (parameter, dict_input[parameter], sep=f':\t')
+            para_used.append(parameter)
+
+    print ('------> Model Configuration Settings <------')
+    default_para = [
+        'alpha',
+        'beta',
+        'num_epochs',
+        'learning_rate', 
+        'paga_diagonal', 
+        'gpu',
+        'hidden_dim'
+    ]
+
+    for parameter in default_para:
+        if parameter not in para_used:
+            print (parameter, dict_ref[parameter], sep=f':\t')
+    
+    print ('--------------------------------------------')
+    print ('')
+    return config

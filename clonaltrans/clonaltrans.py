@@ -7,10 +7,7 @@ import pandas as pd
 import numpy as np
 import os
 from tqdm import tqdm
-from torch.utils.tensorboard import SummaryWriter
 
-torch.manual_seed(42)
-torch.cuda.manual_seed_all(42)
 MSE = nn.MSELoss(reduction='mean')
 SmoothL1 = nn.SmoothL1Loss(reduction='mean', beta=1.0)
 
@@ -20,7 +17,7 @@ class CloneTranModel(nn.Module):
         N, # (num_timpoints, num_clones, num_populations)
         L, # (num_populations, num_populations)
         config,
-        comment: str = ""
+        writer
     ):
         super(CloneTranModel, self).__init__()
         self.N = N
@@ -28,9 +25,9 @@ class CloneTranModel(nn.Module):
         self.log_N = torch.log(N + 1e-6)
 
         self.config = config
-        self.writer = SummaryWriter(log_dir=None, comment=comment)
+        self.writer = writer
 
-        self.ode_func = ODEBlock(N=N, input_dim=N.shape[2], hidden_dim=16, activation=config.activation)
+        self.ode_func = ODEBlock(N=N, input_dim=N.shape[2], hidden_dim=config.hidden_dim, activation=config.activation)
         self.init_optimizer()
 
     def init_optimizer(self):
@@ -84,6 +81,7 @@ class CloneTranModel(nn.Module):
 
         y_pred = odeint(self.ode_func, self.log_N[0], t_eval, method='dopri5')
         return torch.exp(y_pred) - 1e-6
+        # return y_pred
 
     def tb_writer(
         self,

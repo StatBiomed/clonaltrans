@@ -9,6 +9,8 @@ class Configuration():
         #* MODEL ARCHETICTURE *
         self.activation = 'gelu'
 
+        self.hidden_dim = 16
+
         #* MODEL FITTING *
         self.alpha = 0.01
         
