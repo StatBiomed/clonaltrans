@@ -28,7 +28,7 @@ def eval_predictions(model, t_observed):
     predictions = model.eval_model(t_observed)
 
     mse_corr(observations[1:], predictions[1:], t_observed[1:].cpu().numpy())
-    grid_visual(observations, predictions, t_observed)
+    # grid_visual(observations, predictions, t_observed)
 
 def mse_corr(observations, predictions, t_observed, size=20, hue=None, palette=None):
     num_t = observations.shape[0]
@@ -136,3 +136,4 @@ def grid_visual_interpolate(observations, predictions, t_observed, t_pred=None):
     fig.subplots_adjust(wspace=0.5)
     handles, labels = axes[row][col].get_legend_handles_labels()
     fig.legend(handles, labels, loc='center right', bbox_to_anchor=(1, 0.5), fontsize='x-large')
+    plt.savefig('./demo.png', dpi=300, bbox_inches='tight')
