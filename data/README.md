@@ -27,8 +27,8 @@ fig.subplots_adjust(wspace=0.5)
 Note: this array only has barcoded cells. We also have non barcoded cells that we could use as background, but I haven't figured out yet what's the proportion of non barcoded cells that was sequenced. For the moment, please use the sum of megaclones as background. This is anyway a test, because more data is coming soon.
 
 
-Similarly, I will update S as soon as I figure out the actual proportions. 
-
+The file "overall_distances_kinetics.csv" contains the Euclidean distances among the megaclones.
+The file "initial_condition.csv" containes the megaclone sizes, which can be used as initial condition.
 
 
 
