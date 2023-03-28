@@ -20,6 +20,12 @@ class Configuration():
         
         self.learning_rate = 0.01
 
+        self.lrs_step = 200
+
+        self.lrs_gamma = 0.5
+
         #* DATA PRE-PROCESSING *
         self.paga_diagonal = True
+
+        self.init_day_zero = True
         

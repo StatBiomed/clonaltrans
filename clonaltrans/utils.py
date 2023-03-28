@@ -6,25 +6,33 @@ import numpy as np
 def get_topo_obs(
     data_dir, 
     fill_diagonal: bool = True, 
+    init_day_zero: bool = True,
     device: int = 0
 ):
     # PAGA Topology (Population Adjacency Matrix), same for each clones?
     paga = pd.read_csv(os.path.join(data_dir, 'graph_table.csv'), index_col=0).astype(np.int32)
-    print ('Topology graph loaded.')
+    print (f'Topology graph loaded {paga.shape}.')
+
+    if fill_diagonal:
+        np.fill_diagonal(paga.values, 1)
 
     # number of cells (per timepoints, per meta-clone, per population)
     array = np.loadtxt(os.path.join(data_dir, 'kinetics_array_correction_factor.txt'))
     array_ori = array.reshape(array.shape[0], array.shape[1] // 11, 11)
     array_ori = torch.swapaxes(torch.tensor(array_ori, dtype=torch.float32), 0, 1)
-    print ('Input cell data (num_timepoints, num_clones, num_populations) loaded.')
+    print (f'Input cell data (num_timepoints {array_ori.shape[0]}, num_clones {array_ori.shape[1]}, num_populations {array_ori.shape[2]}) loaded.')
+
+    if init_day_zero:
+        init_con = pd.read_csv('./data/initial_condition.csv', index_col=0).astype(np.float32)
+        day_zero = np.zeros((array_ori.shape[1], array_ori.shape[2]))
+        day_zero[:, 0] = init_con['leiden'].values
+        array_ori = torch.concatenate((torch.tensor(day_zero, dtype=torch.float32).unsqueeze(0), array_ori), axis=0)
+        print (f'Day0 has been added. Input data shape: {array_ori.shape}')
 
     # generate background cells
     background = torch.sum(array_ori, axis=1).unsqueeze(1)
     array_total = torch.concatenate((array_ori, background), axis=1)
-    print ('Background reference cells generated.')
-
-    if fill_diagonal:
-        np.fill_diagonal(paga.values, 1)
+    print (f'Background reference cells generated. Input data shape: {array_total.shape}')
 
     # some simulation data on cell counts
     # array_total[1] = array_total[0] * 10 + torch.normal(torch.zeros(array_total[0].shape), torch.ones(array_total[0].shape)) * 10
@@ -43,6 +51,7 @@ def set_seed(seed):
     torch.backends.cudnn.benchmark = True
     torch.backends.cudnn.enabled = True
     torch.autograd.set_detect_anomaly(True)
+    torch.set_printoptions(sci_mode=False)
 
 def init_config_summary(config=None):
     from .config import Configuration
@@ -68,7 +77,9 @@ def init_config_summary(config=None):
         'learning_rate', 
         'paga_diagonal', 
         'gpu',
-        'hidden_dim'
+        'hidden_dim',
+        'lrs_step',
+        'lrs_gamma'
     ]
 
     for parameter in default_para:
