@@ -55,7 +55,13 @@ def mse_corr(observations, predictions, t_observed, size=20, hue=None, palette=N
         ax_loc.set_xlabel(f'Observations')
         ax_loc.set_ylabel(f'Predictions')
 
-def grid_visual_interpolate(observations, predictions, t_observed, t_pred=None, save=False):
+def grid_visual_interpolate(
+    observations, 
+    predictions, 
+    t_observed, 
+    t_pred=None, 
+    save=False
+):
     if t_pred == None:
         t_pred = t_observed.clone()
         
@@ -94,4 +100,4 @@ def grid_visual_interpolate(observations, predictions, t_observed, t_pred=None, 
     fig.legend(handles, labels, loc='center right', bbox_to_anchor=(1, 0.5), fontsize='x-large')
 
     if save:
-        plt.savefig('./demo.png', dpi=300, bbox_inches='tight')
+        plt.savefig(f'./figs/{save}.png', dpi=300, bbox_inches='tight')

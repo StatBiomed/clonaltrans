@@ -79,7 +79,8 @@ def init_config_summary(config=None):
         'gpu',
         'hidden_dim',
         'lrs_step',
-        'lrs_gamma'
+        'lrs_gamma',
+        'log_data'
     ]
 
     for parameter in default_para:
