@@ -27,6 +27,12 @@ class CloneTranModel(nn.Module):
         self.log_N = torch.log(N + 1e-6)
 
         self.input_N = self.log_N if config.log_data else N
+        print (f'Mean of original data: {N.mean().cpu():.3f}')
+        print (f'Mean of input data: {self.input_N.mean().cpu():.3f}')
+
+        self.ub_N = \
+            torch.max(self.log_N, axis=0)[0].unsqueeze(0) * 1.1 \
+            if config.log_data else torch.max(N, axis=0)[0].unsqueeze(0)
 
         self.config = config
         self.writer = writer
@@ -58,11 +64,20 @@ class CloneTranModel(nn.Module):
         #* matrix_K[:-1] = parameter delta for each meta-clone specified in paper
         matrix_K = []
         for i in range(self.N.shape[1] - 1):
-            matrix_K.append(torch.matmul(self.ode_func.encode[i].weight.T, self.ode_func.decode[i].weight.T) * self.L)
-        matrix_K.append(torch.matmul(self.ode_func.encode[-1].weight.T, self.ode_func.decode[-1].weight.T) * self.L)
+            matrix_K.append(
+                torch.matmul(
+                    self.ode_func.encode[i].weight.T, 
+                    self.ode_func.decode[i].weight.T
+                ) * self.L)
+        
+        matrix_K.append(
+            torch.matmul(
+                self.ode_func.encode[-1].weight.T, 
+                self.ode_func.decode[-1].weight.T
+            ) * self.L)
         return torch.stack(matrix_K)
 
-    def compute_loss(self, y_pred, epoch, pbar):
+    def compute_loss(self, y_pred, epoch, pbar, y_pred_eval=None):
         self.matrix_K = self.get_matrix_K()
         loss_obs = SmoothL1(y_pred * self.mask, self.input_N * self.mask)
         loss_K = self.config.beta * torch.linalg.norm(self.matrix_K[-1], ord='fro')
@@ -90,7 +105,7 @@ class CloneTranModel(nn.Module):
             return result
         return wrapper
 
-    def train_model(self, t_observed):
+    def train_model(self, t_observed, t_eval=None):
         self.ode_func.train()
 
         pbar = tqdm(range(self.config.num_epochs))
@@ -104,8 +119,14 @@ class CloneTranModel(nn.Module):
                 y_pred = odeint(self.ode_func, self.input_N[0], t_observed, method='dopri5')
                 loss = self.compute_loss(y_pred, epoch, pbar)
 
+            self.writer.add_scalar('NFE/Forward', self.ode_func.nfe, epoch)
+            self.ode_func.nfe = 0
+
             self.optimizer.step()
             self.scheduler.step()
+
+            self.writer.add_scalar('NFE/Backward', self.ode_func.nfe, epoch)
+            self.ode_func.nfe = 0
 
     @torch.no_grad()
     def eval_model(self, t_eval):

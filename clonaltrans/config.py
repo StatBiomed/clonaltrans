@@ -9,7 +9,7 @@ class Configuration():
         self.inspect = True
 
         #* MODEL ARCHETICTURE *
-        self.activation = 'gelu'
+        self.activation = 'relu'
 
         self.hidden_dim = 16
 
@@ -34,3 +34,4 @@ class Configuration():
 
         self.init_day_zero = True
         
+        self.simulation = False

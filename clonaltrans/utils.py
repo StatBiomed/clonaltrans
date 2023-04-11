@@ -6,6 +6,7 @@ import numpy as np
 def get_topo_obs(
     data_dir, 
     fill_diagonal: bool = True, 
+    simulation: bool = False,
     init_day_zero: bool = True,
     device: int = 0
 ):
@@ -34,15 +35,21 @@ def get_topo_obs(
     array_total = torch.concatenate((array_ori, background), axis=1)
     print (f'Background reference cells generated. Input data shape: {array_total.shape}')
 
-    # some simulation data on cell counts
-    # array_total[1] = array_total[0] * 10 + torch.normal(torch.zeros(array_total[0].shape), torch.ones(array_total[0].shape)) * 10
-    # array_total[1][array_total[1] < 0] = 0
-    # array_total[2] = array_total[1] + 50 + torch.normal(torch.zeros(array_total[1].shape), torch.ones(array_total[1].shape)) * 10
-    # array_total[2][array_total[2] < 0] = 0
-    # array_total[2] = torch.where(array_total[2] > array_total[1], array_total[2] / 100, array_total[2])
-    # array_total[2][array_total[2] < 0] = 0
+    if simulation:
+        array_total = simulation_data(array_total)
+        print (f'Simulation data generated. Final input shape {array_total.shape}')
 
     return torch.tensor(paga.values, dtype=torch.float32, device=device), array_total.to(device)
+
+def simulation_data(arr):
+    shape = arr[0].shape
+    arr[2] = arr[1] * 20 + torch.normal(torch.zeros(shape), torch.ones(shape)) * 20
+    arr[2][arr[2] < 0] = 0
+
+    arr[3] = arr[2] / 5 + 50 + torch.normal(torch.zeros(shape), torch.ones(shape)) * 10
+    arr[3][arr[3] < 0] = 0
+
+    return arr
 
 def set_seed(seed):
     np.random.seed(seed)
@@ -80,7 +87,8 @@ def init_config_summary(config=None):
         'hidden_dim',
         'lrs_step',
         'lrs_gamma',
-        'log_data'
+        'log_data',
+        'activation'
     ]
 
     for parameter in default_para:

@@ -8,10 +8,12 @@ def activation_helper(activation):
         act = nn.Sigmoid()
     if activation == 'tanh':
         act = nn.Tanh()
+    if activation == 'elu':
+        act = nn.ELU(alpha=1.0)
     if activation == 'relu':
         act = nn.ReLU()
-    if activation == 'leakyrelu':
-        act = nn.LeakyReLU()
+    if activation == 'softplus':
+        act = nn.Softplus()
     if activation is None:
         def act(x):
             return x
@@ -24,12 +26,14 @@ class ODEBlock(nn.Module):
         self.activation = activation_helper(activation)
         self.encode = nn.ModuleList()
         self.decode = nn.ModuleList()
+        self.nfe = 0
 
         for i in range(N.shape[1]):
             self.encode.append(nn.Linear(input_dim, hidden_dim))
             self.decode.append(nn.Linear(hidden_dim, input_dim))
 
     def forward(self, t, y):
+        self.nfe += 1
         outputs = []
 
         for i in range(self.N.shape[1]):
