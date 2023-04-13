@@ -1,6 +1,6 @@
 import torch
 from torch import nn
-from torchdiffeq import odeint_adjoint as odeint
+from torchdiffeq import odeint_adjoint, odeint
 from .ode_block import ODEBlock
 
 import pandas as pd
@@ -30,10 +30,6 @@ class CloneTranModel(nn.Module):
         print (f'Mean of original data: {N.mean().cpu():.3f}')
         print (f'Mean of input data: {self.input_N.mean().cpu():.3f}')
 
-        self.ub_N = \
-            torch.max(self.log_N, axis=0)[0].unsqueeze(0) * 1.1 \
-            if config.log_data else torch.max(N, axis=0)[0].unsqueeze(0)
-
         self.config = config
         self.writer = writer
 
@@ -49,9 +45,14 @@ class CloneTranModel(nn.Module):
             lr=self.config.learning_rate,
             amsgrad=True
         )
-        self.scheduler = torch.optim.lr_scheduler.StepLR(
+        # self.scheduler = torch.optim.lr_scheduler.StepLR(
+        #     self.optimizer, 
+        #     step_size=self.config.lrs_step, 
+        #     gamma=self.config.lrs_gamma
+        # )
+        self.scheduler = torch.optim.lr_scheduler.MultiStepLR(
             self.optimizer, 
-            step_size=self.config.lrs_step, 
+            milestones=[200, 300, 400, 500, 600], 
             gamma=self.config.lrs_gamma
         )
 
@@ -79,7 +80,7 @@ class CloneTranModel(nn.Module):
 
     def compute_loss(self, y_pred, epoch, pbar, y_pred_eval=None):
         self.matrix_K = self.get_matrix_K()
-        loss_obs = SmoothL1(y_pred * self.mask, self.input_N * self.mask)
+        loss_obs = SmoothL1(torch.log(nn.functional.relu(y_pred) + 1e-6) * self.mask, self.log_N * self.mask)
         loss_K = self.config.beta * torch.linalg.norm(self.matrix_K[-1], ord='fro')
         loss_delta = self.config.alpha * torch.sum(torch.abs(self.matrix_K[:-1]))
 
@@ -106,21 +107,30 @@ class CloneTranModel(nn.Module):
         return wrapper
 
     def train_model(self, t_observed, t_eval=None):
+        '''
+        For most problems, good choices are the default dopri5, 
+        or to use rk4 with options=dict(step_size=...) set appropriately small. 
+        Adjusting the tolerances (adaptive solvers) or step size (fixed solvers), 
+        will allow for trade-offs between speed and accuracy.
+        '''
+
         self.ode_func.train()
 
         pbar = tqdm(range(self.config.num_epochs))
         for epoch in pbar:
             self.optimizer.zero_grad()
 
-            if self.config.inspect:
-                y_pred = self.timeit(odeint, epoch)(self.ode_func, self.input_N[0], t_observed, method='dopri5')
-                loss = self.timeit(self.compute_loss, epoch)(y_pred, epoch, pbar)
-            else:
-                y_pred = odeint(self.ode_func, self.input_N[0], t_observed, method='dopri5')
-                loss = self.compute_loss(y_pred, epoch, pbar)
+            y_pred = self.timeit(
+                odeint_adjoint if self.config.adjoint else odeint, epoch
+            )(
+                self.ode_func, self.input_N[0], t_observed, method='dopri5',
+                rtol=1e-5, options=dict(dtype=torch.float32),
+            )
 
             self.writer.add_scalar('NFE/Forward', self.ode_func.nfe, epoch)
             self.ode_func.nfe = 0
+
+            loss = self.timeit(self.compute_loss, epoch)(y_pred, epoch, pbar)
 
             self.optimizer.step()
             self.scheduler.step()
@@ -132,7 +142,11 @@ class CloneTranModel(nn.Module):
     def eval_model(self, t_eval):
         self.ode_func.eval()
 
-        y_pred = odeint(self.ode_func, self.input_N[0], t_eval, method='dopri5')
+        if self.config.adjoint:
+            y_pred = odeint_adjoint(self.ode_func, self.input_N[0], t_eval, method='dopri5')
+        else:
+            y_pred = odeint(self.ode_func, self.input_N[0], t_eval, method='dopri5')
+        
         return (torch.exp(y_pred) - 1e-6) * self.mask if self.config.log_data else y_pred * self.mask
 
     def tb_writer(

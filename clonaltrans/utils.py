@@ -77,21 +77,7 @@ def init_config_summary(config=None):
             para_used.append(parameter)
 
     print ('------> Model Configuration Settings <------')
-    default_para = [
-        'alpha',
-        'beta',
-        'num_epochs',
-        'learning_rate', 
-        'paga_diagonal', 
-        'gpu',
-        'hidden_dim',
-        'lrs_step',
-        'lrs_gamma',
-        'log_data',
-        'activation'
-    ]
-
-    for parameter in default_para:
+    for parameter in list(vars(config).keys()):
         if parameter not in para_used:
             print (parameter, dict_ref[parameter], sep=f':\t')
     

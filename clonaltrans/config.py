@@ -6,10 +6,8 @@ class Configuration():
 
         self.seed = 42
 
-        self.inspect = True
-
         #* MODEL ARCHETICTURE *
-        self.activation = 'relu'
+        self.activation = 'softplus'
 
         self.hidden_dim = 16
 
@@ -18,7 +16,7 @@ class Configuration():
         
         self.beta = 0.01
 
-        self.num_epochs = 2000
+        self.num_epochs = 1500
         
         self.learning_rate = 0.01
 
@@ -26,8 +24,7 @@ class Configuration():
 
         self.lrs_gamma = 0.5
 
-        # TODO parameter for specifing input data type to use, raw, log, etc.
-        self.log_data = True
+        self.adjoint = False
 
         #* DATA PRE-PROCESSING *
         self.paga_diagonal = True
@@ -35,3 +32,6 @@ class Configuration():
         self.init_day_zero = True
         
         self.simulation = False
+
+        # TODO parameter for specifing input data type to use, raw, log, etc.
+        self.log_data = False

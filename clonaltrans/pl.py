@@ -3,7 +3,6 @@ from torch import nn
 import matplotlib.pyplot as plt
 import math
 import seaborn as sns
-from scipy.interpolate import interp1d
 import numpy as np
 import pandas as pd
 
@@ -23,16 +22,24 @@ def get_subplot_dimensions(
     fig_height = fig_height_per_row * rows
     return rows, cols, (fig_width, fig_height)
 
-def eval_predictions(model, t_observed):
+def eval_predictions(model, t_observed, save=False):
     from .pl import mse_corr
     t_observed_norm = (t_observed - t_observed[0]) / (t_observed[-1] - t_observed[0])
 
     observations = model.N
     predictions = model.eval_model(t_observed_norm)
 
-    mse_corr(observations[1:], predictions[1:], t_observed[1:].cpu().numpy())
+    mse_corr(observations[1:], predictions[1:], t_observed[1:].cpu().numpy(), save=save)
 
-def mse_corr(observations, predictions, t_observed, size=20, hue=None, palette=None):
+def mse_corr(
+    observations, 
+    predictions, 
+    t_observed, 
+    size=20, 
+    hue=None, 
+    palette=None, 
+    save=False
+):
     num_t = observations.shape[0]
     print (f'There are {num_t} observed timepoints except the inital time.')
 
@@ -54,6 +61,9 @@ def mse_corr(observations, predictions, t_observed, size=20, hue=None, palette=N
         ax_loc.set_title(f'Time {t_observed[n]} Loss {loss.item():.3f} Corr {spear:.3f}')
         ax_loc.set_xlabel(f'Observations')
         ax_loc.set_ylabel(f'Predictions')
+
+    if save:
+        plt.savefig(f'./figs/{save}.png', dpi=300, bbox_inches='tight')
 
 def grid_visual_interpolate(
     observations, 
