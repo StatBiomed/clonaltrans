@@ -39,3 +39,36 @@ class MyModel(torch.nn.Module):
     @timeit(section='update')
     def update(self, optimizer):
         optimizer.step()
+
+class Deprecated(torch.nn.Module):
+    def __init__(self) -> None:
+
+        self.non_diagonal = torch.ones(L.shape).fill_diagonal_(0).unsqueeze(0).to(config.gpu)
+
+        self.scheduler = torch.optim.lr_scheduler.StepLR(
+            self.optimizer, 
+            step_size=self.config.lrs_step, 
+            gamma=self.config.lrs_gamma
+        )
+
+        self.writer.add_scalar('NFE/Backward', self.ode_func.nfe, epoch)
+        self.ode_func.nfe = 0
+
+    def get_matrix_K(self):
+        #* matrix_K (num_clones, num_populations, num_populations)
+        #* matrix_K[-1] = base K(1) for background cells
+        #* matrix_K[:-1] = parameter delta for each meta-clone specified in paper
+        matrix_K = []
+        for i in range(self.N.shape[1] - 1):
+            matrix_K.append(
+                torch.matmul(
+                    self.ode_func.encode[i].weight.T, 
+                    self.ode_func.decode[i].weight.T
+                ) * self.L)
+        
+        matrix_K.append(
+            torch.matmul(
+                self.ode_func.encode[-1].weight.T, 
+                self.ode_func.decode[-1].weight.T
+            ) * self.L)
+        return torch.stack(matrix_K)

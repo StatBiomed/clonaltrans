@@ -2,6 +2,8 @@ import pandas as pd
 import os
 import torch
 import numpy as np
+import time
+import inspect
 
 def get_topo_obs(
     data_dir, 
@@ -84,3 +86,41 @@ def init_config_summary(config=None):
     print ('--------------------------------------------')
     print ('')
     return config
+
+def timeit(func, epoch, writer):
+    def wrapper(*args, **kwargs):
+        start_time = time.monotonic()
+        result = func(*args, **kwargs)
+        end_time = time.monotonic()
+
+        # Use inspect to get the line number of the decorated function call
+        # line_number = inspect.currentframe().f_back.f_lineno
+        # print(f"Line {line_number} in {func.__name__} took {end_time - start_time:.6f} seconds")
+        
+        tb_scalar(
+            [f'Time/{func.__name__}'],
+            [np.round(end_time - start_time, 3)],
+            epoch, writer
+        )
+
+        return result
+    return wrapper
+
+def tb_scalar(var_names, var_lists, iter, writer):
+    for idx, variable in enumerate(var_lists):
+        writer.add_scalar(var_names[idx], variable, iter)
+
+def pbar_descrip(var_names, var_lists):
+    res = ''
+    for idx, variable in enumerate(var_lists):
+        res += f'{var_names[idx]} {variable:.3f}, '
+    
+    return res
+
+def pbar_tb_description(var_names, var_lists, iter, writer):
+    res = ''
+    for idx, variable in enumerate(var_lists):
+        res += f'{var_names[idx]} {variable:.3f}, '
+        writer.add_scalar(var_names[idx], variable, iter)
+    
+    return res

@@ -7,11 +7,11 @@ import pandas as pd
 import numpy as np
 import os
 from tqdm import tqdm
-import time
-import inspect
+from .utils import timeit, pbar_tb_description
 
 MSE = nn.MSELoss(reduction='mean')
 SmoothL1 = nn.SmoothL1Loss(reduction='mean', beta=1.0)
+MAE = nn.L1Loss(reduction='mean')
 
 class CloneTranModel(nn.Module):
     def __init__(
@@ -26,14 +26,22 @@ class CloneTranModel(nn.Module):
         self.L = L
         self.log_N = torch.log(N + 1e-6)
 
-        self.input_N = self.log_N if config.log_data else N
+        # self.input_N = self.log_N if config.log_data else N
+        self.input_N = N
         print (f'Mean of original data: {N.mean().cpu():.3f}')
         print (f'Mean of input data: {self.input_N.mean().cpu():.3f}')
 
         self.config = config
         self.writer = writer
 
-        self.ode_func = ODEBlock(N=N, input_dim=N.shape[2], hidden_dim=config.hidden_dim, activation=config.activation)
+        self.ode_func = ODEBlock(
+            N=N, 
+            L=L,
+            hidden_dim=16, 
+            activation=config.activation, 
+            config=config
+        )
+        
         self.init_optimizer()
         self.get_masks()
 
@@ -45,14 +53,9 @@ class CloneTranModel(nn.Module):
             lr=self.config.learning_rate,
             amsgrad=True
         )
-        # self.scheduler = torch.optim.lr_scheduler.StepLR(
-        #     self.optimizer, 
-        #     step_size=self.config.lrs_step, 
-        #     gamma=self.config.lrs_gamma
-        # )
         self.scheduler = torch.optim.lr_scheduler.MultiStepLR(
             self.optimizer, 
-            milestones=[200, 300, 400, 500, 600], 
+            milestones=self.config.lrs_ms, 
             gamma=self.config.lrs_gamma
         )
 
@@ -63,48 +66,47 @@ class CloneTranModel(nn.Module):
         #* matrix_K (num_clones, num_populations, num_populations)
         #* matrix_K[-1] = base K(1) for background cells
         #* matrix_K[:-1] = parameter delta for each meta-clone specified in paper
-        matrix_K = []
-        for i in range(self.N.shape[1] - 1):
-            matrix_K.append(
-                torch.matmul(
-                    self.ode_func.encode[i].weight.T, 
-                    self.ode_func.decode[i].weight.T
-                ) * self.L)
         
-        matrix_K.append(
-            torch.matmul(
-                self.ode_func.encode[-1].weight.T, 
-                self.ode_func.decode[-1].weight.T
-            ) * self.L)
-        return torch.stack(matrix_K)
+        if self.config.num_layers == 1:
+            matrix_K = torch.square(self.ode_func.K1) * self.ode_func.L
+
+            for clone in range(matrix_K.shape[0]):
+                for pop in range(matrix_K.shape[1]):
+                    matrix_K[clone, pop, pop] += self.ode_func.K2[clone, pop]
+        
+        if self.config.num_layers == 2:
+            matrix_K = torch.bmm(self.ode_func.encode, self.ode_func.decode) * self.ode_func.L
+        
+            # matrix_K = []
+            # for i in range(self.N.shape[1]):
+            #     matrix_K.append(
+            #         torch.matmul(
+            #             self.ode_func.encode[i].weight.T, 
+            #             self.ode_func.decode[i].weight.T
+            #         ) * self.L)
+            # return torch.stack(matrix_K)
+
+        return matrix_K
 
     def compute_loss(self, y_pred, epoch, pbar, y_pred_eval=None):
         self.matrix_K = self.get_matrix_K()
-        loss_obs = SmoothL1(torch.log(nn.functional.relu(y_pred) + 1e-6) * self.mask, self.log_N * self.mask)
-        loss_K = self.config.beta * torch.linalg.norm(self.matrix_K[-1], ord='fro')
-        loss_delta = self.config.alpha * torch.sum(torch.abs(self.matrix_K[:-1]))
+        # loss_obs = SmoothL1(torch.log(y_pred + 1e-6) * self.mask, self.log_N * self.mask)
+        loss_obs = SmoothL1(y_pred * self.mask, self.input_N * self.mask)
 
-        pbar.set_description(f"Delta {loss_delta.item():.3f}, BaseK {loss_K.item():.3f}, Observation {loss_obs.item():.3f}")
-        self.tb_writer(epoch, loss_delta, loss_K, loss_obs)
+        loss_K = self.config.beta * torch.linalg.norm(self.matrix_K[-1], ord='fro')
+        loss_delta = self.config.alpha * torch.sum(torch.abs(self.matrix_K[:-1]))        
+        
+        descrip = pbar_tb_description(
+            ['Loss/Delta', 'Loss/K', 'Loss/Obs', 'Loss/LR', 'NFE/Forward'],
+            [loss_delta.item(), loss_K.item(), loss_obs.item(), self.optimizer.param_groups[0]['lr'], self.ode_func.nfe],
+            epoch, self.writer
+        )
+        pbar.set_description(descrip)
+        self.ode_func.nfe = 0
 
         loss = loss_obs + loss_K + loss_delta
         loss.backward()
         return loss
-
-    def timeit(self, func, epoch):
-        def wrapper(*args, **kwargs):
-            start_time = time.monotonic()
-            result = func(*args, **kwargs)
-            end_time = time.monotonic()
-
-            # Use inspect to get the line number of the decorated function call
-            line_number = inspect.currentframe().f_back.f_lineno
-
-            # print(f"Line {line_number} in {func.__name__} took {end_time - start_time:.6f} seconds")
-            self.writer.add_scalar(f'Time/{func.__name__}', np.round(end_time - start_time, 3), epoch)
-            
-            return result
-        return wrapper
 
     def train_model(self, t_observed, t_eval=None):
         '''
@@ -120,23 +122,20 @@ class CloneTranModel(nn.Module):
         for epoch in pbar:
             self.optimizer.zero_grad()
 
-            y_pred = self.timeit(
-                odeint_adjoint if self.config.adjoint else odeint, epoch
+            # for p in self.ode_func.K1.parameters():
+            #     p.data.clamp_(0)
+
+            y_pred = timeit(
+                odeint_adjoint if self.config.adjoint else odeint, epoch, self.writer
             )(
                 self.ode_func, self.input_N[0], t_observed, method='dopri5',
                 rtol=1e-5, options=dict(dtype=torch.float32),
             )
 
-            self.writer.add_scalar('NFE/Forward', self.ode_func.nfe, epoch)
-            self.ode_func.nfe = 0
-
-            loss = self.timeit(self.compute_loss, epoch)(y_pred, epoch, pbar)
+            loss = timeit(self.compute_loss, epoch, self.writer)(y_pred, epoch, pbar)
 
             self.optimizer.step()
             self.scheduler.step()
-
-            self.writer.add_scalar('NFE/Backward', self.ode_func.nfe, epoch)
-            self.ode_func.nfe = 0
 
     @torch.no_grad()
     def eval_model(self, t_eval):
@@ -147,16 +146,5 @@ class CloneTranModel(nn.Module):
         else:
             y_pred = odeint(self.ode_func, self.input_N[0], t_eval, method='dopri5')
         
-        return (torch.exp(y_pred) - 1e-6) * self.mask if self.config.log_data else y_pred * self.mask
-
-    def tb_writer(
-        self,
-        iter,
-        loss_delta,
-        loss_K,
-        loss_obs
-    ):
-        self.writer.add_scalar('Loss/Delta', loss_delta.item(), iter)
-        self.writer.add_scalar('Loss/K', loss_K.item(), iter)
-        self.writer.add_scalar('Loss/Observation', loss_obs.item(), iter)
-        self.writer.add_scalar('Loss/Learing_Rate', self.optimizer.param_groups[0]['lr'], iter)
+        # return (torch.exp(y_pred) - 1e-6) * self.mask if self.config.log_data else y_pred * self.mask
+        return y_pred * self.mask
