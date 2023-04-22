@@ -22,15 +22,6 @@ def get_subplot_dimensions(
     fig_height = fig_height_per_row * rows
     return rows, cols, (fig_width, fig_height)
 
-def eval_predictions(model, t_observed, save=False):
-    from .pl import mse_corr
-    t_observed_norm = (t_observed - t_observed[0]) / (t_observed[-1] - t_observed[0])
-
-    observations = model.N
-    predictions = model.eval_model(t_observed_norm)
-
-    mse_corr(observations[1:], predictions[1:], t_observed[1:].cpu().numpy(), save=save)
-
 def mse_corr(
     observations, 
     predictions, 
@@ -47,6 +38,10 @@ def mse_corr(
     rows, cols, figsize = get_subplot_dimensions(num_t, fig_height_per_row=4)
     fig, axes = plt.subplots(rows, cols, figsize=figsize)
 
+    anno = pd.read_csv('./data/annotations.csv')
+    if hue == 'pop':
+        pop = np.broadcast_to(anno['populations'].values, (observations[0].shape)).flatten()
+
     for n in range(num_t):
         loss = SmoothL1(observations[n], predictions[n])
         x = observations[n].cpu().numpy().flatten()
@@ -56,7 +51,7 @@ def mse_corr(
         ax_loc = axes[n % cols][n // cols] if rows > 1 else axes[n]
         sns.scatterplot(
             x=x, y=y, s=size, ax=ax_loc,
-            hue=None, palette=None
+            hue=hue, palette=palette
         )
         ax_loc.set_title(f'Time {t_observed[n]} Loss {loss.item():.3f} Corr {spear:.3f}')
         ax_loc.set_xlabel(f'Observations')

@@ -9,16 +9,16 @@ class Configuration():
         #* MODEL ARCHETICTURE *
         self.activation = 'softplus'
 
-        # self.hidden_dim = 16
+        self.hidden_dim = 16
 
-        self.num_layers = 1
+        self.num_layers = 2
 
         #* MODEL FITTING *
         self.alpha = 0.01
         
         self.beta = 0.01
 
-        self.num_epochs = 1500
+        self.num_epochs = 1000
         
         self.learning_rate = 0.01
 
@@ -29,11 +29,7 @@ class Configuration():
         self.adjoint = False
 
         #* DATA PRE-PROCESSING *
-        # self.paga_diagonal = True
-
         # self.init_day_zero = True
-        
-        self.simulation = False
 
         # TODO parameter for specifing input data type to use, raw, log, etc.
-        # self.log_data = False
+        self.input_form = 'log'

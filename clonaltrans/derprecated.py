@@ -1,6 +1,8 @@
 import time
 import inspect
 import torch
+from torch import nn
+from torch.nn.parameter import Parameter
 
 def timeit(section=None):
     def decorator(func):
@@ -22,10 +24,10 @@ def timeit(section=None):
         return wrapper
     return decorator
 
-class MyModel(torch.nn.Module):
+class MyModel(nn.Module):
     def __init__(self):
         super().__init__()
-        self.linear = torch.nn.Linear(10, 1)
+        self.linear = nn.Linear(10, 1)
 
     @timeit(section='forward')
     def forward(self, x):
@@ -40,8 +42,8 @@ class MyModel(torch.nn.Module):
     def update(self, optimizer):
         optimizer.step()
 
-class Deprecated(torch.nn.Module):
-    def __init__(self) -> None:
+class Deprecated(nn.Module):
+    def __init__(self, L, epoch, config) -> None:
 
         self.non_diagonal = torch.ones(L.shape).fill_diagonal_(0).unsqueeze(0).to(config.gpu)
 
@@ -72,3 +74,52 @@ class Deprecated(torch.nn.Module):
                 self.ode_func.decode[-1].weight.T
             ) * self.L)
         return torch.stack(matrix_K)
+
+class ODEBlock(torch.nn.Module):
+    def __init__(self, N, hidden_dim) -> None:
+        super().__init__()
+
+        #* dydt = K1 * y + K2 * y + bias (optional)
+        self.K1 = Parameter(torch.randn((N.shape[1], N.shape[2], N.shape[2])), requires_grad=True)
+        self.K2 = Parameter(torch.randn((N.shape[1], N.shape[2])), requires_grad=True)
+        self.offset = Parameter(torch.zeros((N.shape[1], N.shape[2])), requires_grad=True)
+    
+        #* Intuitely 2 layer MLP for each individual clone
+        self.encode = nn.ModuleList()
+        self.decode = nn.ModuleList()
+
+        for i in range(N.shape[1]):
+            self.encode.append(nn.Linear(N.shape[2], hidden_dim))
+            self.decode.append(nn.Linear(hidden_dim, N.shape[2]))
+
+        #* Extracting weights and bias should be the same, whilst performance varies
+        self.encode = nn.parameter.Parameter(torch.randn((N.shape[1], N.shape[2], hidden_dim)), requires_grad=True)
+        self.encode_bias =  nn.parameter.Parameter(torch.zeros((N.shape[1], 1, hidden_dim)), requires_grad=True)
+        self.decode = nn.parameter.Parameter(torch.randn((N.shape[1], hidden_dim, N.shape[2])), requires_grad=True)
+        self.decode_bias =  nn.parameter.Parameter(torch.zeros((N.shape[1], N.shape[2])), requires_grad=True)
+    
+        # self.weight = Parameter(torch.empty((out_features, in_features), **factory_kwargs))
+        # self.bias = Parameter(torch.empty(out_features, **factory_kwargs))
+
+        # for p in self.ode_func.K1.parameters():
+        #     p.data.clamp_(0)
+
+    def forward(self, t, y):
+        outputs = []
+
+        for i in range(self.N.shape[1]):
+            z = self.encode[i](y[i])
+            z = self.activation(z)
+            z = self.decode[i](z)
+            outputs.append(z)
+
+        return torch.stack(outputs)
+
+def eval_predictions(model, t_observed, log_output=False, save=False):
+    from .pl import mse_corr
+    t_observed_norm = (t_observed - t_observed[0]) / (t_observed[-1] - t_observed[0])
+
+    observations = model.input_N
+    predictions = model.eval_model(t_observed_norm, log_output=log_output)
+
+    mse_corr(observations[1:], predictions[1:], t_observed[1:].cpu().numpy(), save=save)

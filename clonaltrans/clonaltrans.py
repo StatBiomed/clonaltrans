@@ -1,13 +1,10 @@
 import torch
 from torch import nn
 from torchdiffeq import odeint_adjoint, odeint
-from .ode_block import ODEBlock
-
-import pandas as pd
-import numpy as np
-import os
 from tqdm import tqdm
-from .utils import timeit, pbar_tb_description
+
+from .ode_block import ODEBlock
+from .utils import timeit, pbar_tb_description, input_data_form
 
 MSE = nn.MSELoss(reduction='mean')
 SmoothL1 = nn.SmoothL1Loss(reduction='mean', beta=1.0)
@@ -24,12 +21,9 @@ class CloneTranModel(nn.Module):
         super(CloneTranModel, self).__init__()
         self.N = N
         self.L = L
-        self.log_N = torch.log(N + 1e-6)
 
-        # self.input_N = self.log_N if config.log_data else N
-        self.input_N = N
-        print (f'Mean of original data: {N.mean().cpu():.3f}')
-        print (f'Mean of input data: {self.input_N.mean().cpu():.3f}')
+        self.input_N = input_data_form(N, config.input_form)
+        print (f'\nData format: {config.input_form}. Mean of input data: {self.input_N.mean().cpu():.3f}')
 
         self.config = config
         self.writer = writer
@@ -37,10 +31,11 @@ class CloneTranModel(nn.Module):
         self.ode_func = ODEBlock(
             N=N, 
             L=L,
-            hidden_dim=16, 
+            hidden_dim=config.hidden_dim, 
             activation=config.activation, 
             config=config
         )
+        print (self.ode_func)
         
         self.init_optimizer()
         self.get_masks()
@@ -63,9 +58,11 @@ class CloneTranModel(nn.Module):
         self.mask = (self.N.sum(0) != 0).to(torch.float32).unsqueeze(0)
 
     def get_matrix_K(self):
-        #* matrix_K (num_clones, num_populations, num_populations)
-        #* matrix_K[-1] = base K(1) for background cells
-        #* matrix_K[:-1] = parameter delta for each meta-clone specified in paper
+        '''
+        matrix_K (num_clones, num_populations, num_populations)
+        matrix_K[-1] = base K(1) for background cells
+        matrix_K[:-1] = parameter delta for each meta-clone specified in paper
+        '''
         
         if self.config.num_layers == 1:
             matrix_K = torch.square(self.ode_func.K1) * self.ode_func.L
@@ -76,20 +73,12 @@ class CloneTranModel(nn.Module):
         
         if self.config.num_layers == 2:
             matrix_K = torch.bmm(self.ode_func.encode, self.ode_func.decode) * self.ode_func.L
-        
-            # matrix_K = []
-            # for i in range(self.N.shape[1]):
-            #     matrix_K.append(
-            #         torch.matmul(
-            #             self.ode_func.encode[i].weight.T, 
-            #             self.ode_func.decode[i].weight.T
-            #         ) * self.L)
-            # return torch.stack(matrix_K)
 
         return matrix_K
 
     def compute_loss(self, y_pred, epoch, pbar, y_pred_eval=None):
         self.matrix_K = self.get_matrix_K()
+
         # loss_obs = SmoothL1(torch.log(y_pred + 1e-6) * self.mask, self.log_N * self.mask)
         loss_obs = SmoothL1(y_pred * self.mask, self.input_N * self.mask)
 
@@ -122,9 +111,6 @@ class CloneTranModel(nn.Module):
         for epoch in pbar:
             self.optimizer.zero_grad()
 
-            # for p in self.ode_func.K1.parameters():
-            #     p.data.clamp_(0)
-
             y_pred = timeit(
                 odeint_adjoint if self.config.adjoint else odeint, epoch, self.writer
             )(
@@ -138,7 +124,7 @@ class CloneTranModel(nn.Module):
             self.scheduler.step()
 
     @torch.no_grad()
-    def eval_model(self, t_eval):
+    def eval_model(self, t_eval, log_output=False):
         self.ode_func.eval()
 
         if self.config.adjoint:
@@ -146,5 +132,12 @@ class CloneTranModel(nn.Module):
         else:
             y_pred = odeint(self.ode_func, self.input_N[0], t_eval, method='dopri5')
         
-        # return (torch.exp(y_pred) - 1e-6) * self.mask if self.config.log_data else y_pred * self.mask
-        return y_pred * self.mask
+        if self.config.input_form in ['raw', 'shrink']:
+            return y_pred * self.mask
+        
+        elif self.config.input_form == 'log' and log_output:
+            self.mask_log = torch.broadcast_to((self.mask == 0), y_pred.shape)
+            y_pred[self.mask_log] = torch.log(torch.tensor(1e-6))
+            return y_pred
+        
+        else: return (torch.exp(y_pred) - 1e-6) * self.mask

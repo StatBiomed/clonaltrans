@@ -30,7 +30,7 @@ def get_topo_obs(
         day_zero = np.zeros((array_ori.shape[1], array_ori.shape[2]))
         day_zero[:, 0] = init_con['leiden'].values
         array_ori = torch.concatenate((torch.tensor(day_zero, dtype=torch.float32).unsqueeze(0), array_ori), axis=0)
-        print (f'Day0 has been added. Input data shape: {array_ori.shape}')
+        print (f'Day 0 has been added. Input data shape: {array_ori.shape}')
 
     # generate background cells
     background = torch.sum(array_ori, axis=1).unsqueeze(1)
@@ -124,3 +124,13 @@ def pbar_tb_description(var_names, var_lists, iter, writer):
         writer.add_scalar(var_names[idx], variable, iter)
     
     return res
+
+def input_data_form(N, input_form='log'):
+    assert input_form in ['log', 'raw', 'shrink']
+
+    if input_form == 'log':
+        return torch.log(N + 1e-6)
+    if input_form == 'raw':
+        return N
+    if input_form == 'shrink':
+        return N / 1e5

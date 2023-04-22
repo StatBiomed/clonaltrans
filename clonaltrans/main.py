@@ -13,8 +13,6 @@ def run_model(
 
     paga, array_total = get_topo_obs(
         data_dir='./data', 
-        fill_diagonal=True, 
-        simulation=config.simulation,
         init_day_zero=True,
         device=config.gpu
     )
