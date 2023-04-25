@@ -1,7 +1,6 @@
 def run_model(
     config, 
     t_observed,
-    t_eval: any = None,
     trail_name: str = ''
 ):
     from .utils import set_seed, init_config_summary, get_topo_obs
@@ -25,11 +24,8 @@ def run_model(
         writer=writer
     ).to(config.gpu)
 
-    if t_eval != None:
-        t_eval = (t_eval - t_eval[0]) / (t_eval[-1] - t_eval[0])
-
     t_observed = (t_observed - t_observed[0]) / (t_observed[-1] - t_observed[0])
-    model.train_model(t_observed.to(config.gpu), t_eval)
+    model.train_model(t_observed.to(config.gpu))
 
     model.writer.flush()
     model.writer.close()

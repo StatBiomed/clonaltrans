@@ -15,7 +15,7 @@ def activation_helper(activation):
     if activation == 'relu':
         act = nn.ReLU()
     if activation == 'softplus':
-        act = nn.Softplus()
+        act = nn.Softplus(threshold=7)
     if activation is None:
         def act(x):
             return x
@@ -32,52 +32,51 @@ class ODEBlock(nn.Module):
     ):
         super(ODEBlock, self).__init__()
         self.N = N
-        self.L = torch.broadcast_to(L.unsqueeze(0), (N.shape[1], N.shape[2], N.shape[2]))
+        self.L = L
         self.nfe = 0
         self.config = config
 
         if config.num_layers == 1:
-            #* ODE function dydt = K1 * y + K2 * y + bias (optional) with KaiMing Initialization
-            self.K1, self.K2, self.offset = [], [], []
+            '''
+            ODE function dydt = K1 * y + K2 * y + bias (optional) with KaiMing Initialization
+            K1, >= 0, upper off-diagonal, other populations flow into designated population
+            K2, diagonal, self proliferation and cell apoptosis process
+            K3, >= 0, should be transpose of K1, lower off-diagonal
+            ''' 
+
+            self.K1, self.K2 = [], []
 
             for clone in range(N.shape[1]):
                 K1 = torch.empty((N.shape[2], N.shape[2]))
-                offset = torch.empty((N.shape[2], 1))
                 K2 = torch.empty((1, N.shape[2]))
-                self.reset_parameters(K1, offset)
+
+                self.reset_parameters(K1, None)
                 self.reset_parameters(K2, None)
 
                 self.K1.append(K1.T)
-                self.offset.append(offset.T)
                 self.K2.append(K2.T)
 
             self.K1 = Parameter(torch.stack(self.K1), requires_grad=True)
-            self.offset = Parameter(torch.stack(self.offset).squeeze(), requires_grad=True)
             self.K2 = Parameter(torch.stack(self.K2).squeeze(), requires_grad=True)
 
         if config.num_layers == 2:
             #* Batch processing 2 layer MLP for each individual clone with KaiMing Initialization
-            self.encode, self.encode_bias, self.decode, self.decode_bias = [], [], [], []
+            self.encode, self.encode_bias = [], None
+            self.decode, self.decode_bias = [], None
             self.activation = activation_helper(activation)
 
             for clone in range(N.shape[1]):
                 encode = torch.empty((hidden_dim, N.shape[2]))
-                encode_bias = torch.empty((hidden_dim, 1))
-                self.reset_parameters(encode, encode_bias)
-
                 decode = torch.empty((N.shape[2], hidden_dim))
-                decode_bias = torch.empty((N.shape[2], 1))
-                self.reset_parameters(decode, decode_bias)
+
+                self.reset_parameters(encode, None)
+                self.reset_parameters(decode, None)
 
                 self.encode.append(encode.T)
-                self.encode_bias.append(encode_bias.T)
                 self.decode.append(decode.T)
-                self.decode_bias.append(decode_bias.T)
             
             self.encode = Parameter(torch.stack(self.encode), requires_grad=True)
-            self.encode_bias = Parameter(torch.stack(self.encode_bias), requires_grad=True)
             self.decode = Parameter(torch.stack(self.decode), requires_grad=True)
-            self.decode_bias = Parameter(torch.stack(self.decode_bias).squeeze(), requires_grad=True)
 
     def reset_parameters(self, weight, bias) -> None:
         # Setting a=sqrt(5) in kaiming_uniform is the same as initializing with
@@ -92,8 +91,8 @@ class ODEBlock(nn.Module):
 
     def extra_repr(self) -> str:
         if self.config.num_layers == 1:
-            return 'K1 (clone, pop, pop) = {}, \nK2 (clone, pop) = {}, \noffset = {}'.format(
-                self.K1.shape, self.K2.shape, self.offset is not None
+            return 'K1 (clone, pop, pop) = {}, \nK2 (clone, pop) = {}'.format(
+                self.K1.shape, self.K2.shape
             )
         
         if self.config.num_layers == 2:
@@ -106,17 +105,15 @@ class ODEBlock(nn.Module):
 
         if self.config.num_layers == 1:
             z = torch.bmm(y.unsqueeze(1), torch.square(self.K1) * self.L).squeeze()
-            z = z + self.offset
-            z = z + y * self.K2    
+            z = z + y * self.K2 
+            z = z - torch.sum(y.unsqueeze(1) * torch.square(self.K1.mT) * self.L.mT, dim=1).squeeze()
+
             return z
         
         if self.config.num_layers == 2:
             z = torch.bmm(y.unsqueeze(1), self.encode)
-            z = z + self.encode_bias
             z = self.activation(z)
-
             z = torch.bmm(z, self.decode).squeeze()
-            z = z + self.decode_bias
             return z
 
     def forward_direct(self, t, y):

@@ -7,7 +7,7 @@ import inspect
 
 def get_topo_obs(
     data_dir, 
-    fill_diagonal: bool = True, 
+    fill_diagonal: bool = False, 
     simulation: bool = False,
     init_day_zero: bool = True,
     device: int = 0
@@ -16,6 +16,7 @@ def get_topo_obs(
     paga = pd.read_csv(os.path.join(data_dir, 'graph_table.csv'), index_col=0).astype(np.int32)
     print (f'Topology graph loaded {paga.shape}.')
 
+    # Will be filled when initializing model, ignore for now
     if fill_diagonal:
         np.fill_diagonal(paga.values, 1)
 
@@ -37,7 +38,7 @@ def get_topo_obs(
     array_total = torch.concatenate((array_ori, background), axis=1)
     print (f'Background reference cells generated. Input data shape: {array_total.shape}')
 
-    if simulation:
+    if False:
         array_total = simulation_data(array_total)
         print (f'Simulation data generated. Final input shape {array_total.shape}')
 
@@ -125,12 +126,14 @@ def pbar_tb_description(var_names, var_lists, iter, writer):
     
     return res
 
-def input_data_form(N, input_form='log'):
-    assert input_form in ['log', 'raw', 'shrink']
+def input_data_form(N, input_form='log', atol=1e-1, exponent=1/4):
+    assert input_form in ['log', 'raw', 'shrink', 'root']
 
     if input_form == 'log':
-        return torch.log(N + 1e-6)
+        return torch.log(N + atol)
     if input_form == 'raw':
         return N
     if input_form == 'shrink':
         return N / 1e5
+    if input_form == 'root':
+        return torch.pow(N, exponent=exponent)

@@ -20,9 +20,11 @@ class CloneTranModel(nn.Module):
     ):
         super(CloneTranModel, self).__init__()
         self.N = N
-        self.L = L
+        self.L = torch.broadcast_to(L.unsqueeze(0), (N.shape[1], N.shape[2], N.shape[2]))
+        self.atol = 1e-1
+        self.exponent = 1 / 4
 
-        self.input_N = input_data_form(N, config.input_form)
+        self.input_N = input_data_form(N, config.input_form, exponent=self.exponent)
         print (f'\nData format: {config.input_form}. Mean of input data: {self.input_N.mean().cpu():.3f}')
 
         self.config = config
@@ -57,7 +59,13 @@ class CloneTranModel(nn.Module):
     def get_masks(self):
         self.mask = (self.N.sum(0) != 0).to(torch.float32).unsqueeze(0)
 
-    def get_matrix_K(self):
+        self.oppo_L = self.L.clone()
+        self.oppo_L.fill_diagonal_(1)
+        self.oppo_L = (self.oppo_L == 0).to(torch.float32)
+
+        self.used_L = (self.oppo_L == 0).to(torch.float32)
+
+    def get_matrix_K(self, eval=False):
         '''
         matrix_K (num_clones, num_populations, num_populations)
         matrix_K[-1] = base K(1) for background cells
@@ -65,24 +73,31 @@ class CloneTranModel(nn.Module):
         '''
         
         if self.config.num_layers == 1:
-            matrix_K = torch.square(self.ode_func.K1) * self.ode_func.L
+            if eval:
+                matrix_K = torch.square(self.ode_func.K1) * self.ode_func.L
 
-            for clone in range(matrix_K.shape[0]):
-                for pop in range(matrix_K.shape[1]):
-                    matrix_K[clone, pop, pop] += self.ode_func.K2[clone, pop]
+                for clone in range(matrix_K.shape[0]):
+                    for pop in range(matrix_K.shape[1]):
+                        matrix_K[clone, pop, pop] += self.ode_func.K2[clone, pop]
+                
+                return matrix_K
+            else:
+                return torch.zeros((self.L.shape))
         
         if self.config.num_layers == 2:
-            matrix_K = torch.bmm(self.ode_func.encode, self.ode_func.decode) * self.ode_func.L
+            matrix_K = torch.bmm(self.ode_func.encode, self.ode_func.decode)
 
-        return matrix_K
+            if eval:
+                return matrix_K
+            else:
+                return matrix_K * self.oppo_L
 
     def compute_loss(self, y_pred, epoch, pbar, y_pred_eval=None):
         self.matrix_K = self.get_matrix_K()
 
-        # loss_obs = SmoothL1(torch.log(y_pred + 1e-6) * self.mask, self.log_N * self.mask)
         loss_obs = SmoothL1(y_pred * self.mask, self.input_N * self.mask)
 
-        loss_K = self.config.beta * torch.linalg.norm(self.matrix_K[-1], ord='fro')
+        loss_K = self.config.beta * torch.sum(torch.abs(self.matrix_K[-1]))
         loss_delta = self.config.alpha * torch.sum(torch.abs(self.matrix_K[:-1]))        
         
         descrip = pbar_tb_description(
@@ -97,7 +112,7 @@ class CloneTranModel(nn.Module):
         loss.backward()
         return loss
 
-    def train_model(self, t_observed, t_eval=None):
+    def train_model(self, t_observed):
         '''
         For most problems, good choices are the default dopri5, 
         or to use rk4 with options=dict(step_size=...) set appropriately small. 
@@ -132,12 +147,12 @@ class CloneTranModel(nn.Module):
         else:
             y_pred = odeint(self.ode_func, self.input_N[0], t_eval, method='dopri5')
         
-        if self.config.input_form in ['raw', 'shrink']:
+        if self.config.input_form in ['raw', 'shrink', 'root']:
             return y_pred * self.mask
         
         elif self.config.input_form == 'log' and log_output:
             self.mask_log = torch.broadcast_to((self.mask == 0), y_pred.shape)
-            y_pred[self.mask_log] = torch.log(torch.tensor(1e-6))
+            y_pred[self.mask_log] = torch.log(torch.tensor(self.atol))
             return y_pred
         
-        else: return (torch.exp(y_pred) - 1e-6) * self.mask
+        else: return (torch.exp(y_pred) - self.atol) * self.mask
