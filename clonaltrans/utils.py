@@ -137,3 +137,26 @@ def input_data_form(N, input_form='log', atol=1e-1, exponent=1/4):
         return N / 1e5
     if input_form == 'root':
         return torch.pow(N, exponent=exponent)
+
+def val_thres(K, thres=6.):
+    remain = np.stack(np.where(K > thres))
+    print (f'# of entries where transition rates > {thres}: {remain.shape[1]}')
+    print (remain, '\n')
+
+def validate_K(model):
+    K = (model.get_matrix_K(eval=True) * 4).detach().cpu().numpy()
+
+    val_thres(K, 6.)
+    val_thres(K, 4.)
+
+    non_dia_mask = model.L.unsqueeze(0).cpu().numpy()
+    non_diagonal = K * non_dia_mask
+    print (f'# of non-diagonal entries < 0 among all clones: {np.sum(non_diagonal < 0)}')
+    print (np.stack(np.where(non_diagonal < 0)), '\n')
+
+    oppo_mask = model.oppo_L.cpu().numpy()
+    oppo = K * oppo_mask
+    oppo = oppo[np.where(oppo != 0)]
+    print ('All other entries not in topology graph L should be as close to 0 as possible, ideally strictly equals to 0.')
+    print (f'# of entries: {np.sum(oppo_mask)}')
+    print (f'Max: {np.max(oppo):.6f}, Median: {np.median(oppo):.6f}, Min: {np.min(oppo):.6f}')

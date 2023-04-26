@@ -20,7 +20,7 @@ class CloneTranModel(nn.Module):
     ):
         super(CloneTranModel, self).__init__()
         self.N = N
-        self.L = torch.broadcast_to(L.unsqueeze(0), (N.shape[1], N.shape[2], N.shape[2]))
+        self.L = L
         self.atol = 1e-1
         self.exponent = 1 / 4
 
@@ -32,7 +32,7 @@ class CloneTranModel(nn.Module):
 
         self.ode_func = ODEBlock(
             N=N, 
-            L=L,
+            L=torch.broadcast_to(L.unsqueeze(0), (N.shape[1], N.shape[2], N.shape[2])),
             hidden_dim=config.hidden_dim, 
             activation=config.activation, 
             config=config
@@ -61,6 +61,7 @@ class CloneTranModel(nn.Module):
 
         self.oppo_L = self.L.clone()
         self.oppo_L.fill_diagonal_(1)
+        self.oppo_L = torch.broadcast_to(self.oppo_L.unsqueeze(0), (self.N.shape[1], self.N.shape[2], self.N.shape[2]))
         self.oppo_L = (self.oppo_L == 0).to(torch.float32)
 
         self.used_L = (self.oppo_L == 0).to(torch.float32)
@@ -90,25 +91,29 @@ class CloneTranModel(nn.Module):
             if eval:
                 return matrix_K
             else:
-                return matrix_K * self.oppo_L
+                return matrix_K * self.oppo_L, \
+                    ((matrix_K * self.L) < 0).to(torch.float32) * matrix_K, \
+                    (((matrix_K * 4 - 6.) * self.used_L) > 0).to(torch.float32) * (matrix_K * 4 - 6.)
 
     def compute_loss(self, y_pred, epoch, pbar, y_pred_eval=None):
-        self.matrix_K = self.get_matrix_K()
+        self.matrix_K, off_diagonal, upper_bound = self.get_matrix_K()
 
         loss_obs = SmoothL1(y_pred * self.mask, self.input_N * self.mask)
 
         loss_K = self.config.beta * torch.sum(torch.abs(self.matrix_K[-1]))
-        loss_delta = self.config.alpha * torch.sum(torch.abs(self.matrix_K[:-1]))        
+        loss_delta = self.config.alpha * torch.sum(torch.abs(self.matrix_K[:-1]))    
+        loss_offdia = 0.01 * torch.sum(off_diagonal)
+        loss_upper = 0.01 * torch.sum(upper_bound)
         
         descrip = pbar_tb_description(
-            ['Loss/Delta', 'Loss/K', 'Loss/Obs', 'Loss/LR', 'NFE/Forward'],
-            [loss_delta.item(), loss_K.item(), loss_obs.item(), self.optimizer.param_groups[0]['lr'], self.ode_func.nfe],
+            ['Loss/Delta', 'Loss/K', 'Loss/Obs', 'Loss/LR', 'NFE/Forward', 'Loss/OffDia', 'Loss/Upper'],
+            [loss_delta.item(), loss_K.item(), loss_obs.item(), self.optimizer.param_groups[0]['lr'], self.ode_func.nfe, loss_offdia.item(), loss_upper.item()],
             epoch, self.writer
         )
         pbar.set_description(descrip)
         self.ode_func.nfe = 0
 
-        loss = loss_obs + loss_K + loss_delta
+        loss = loss_obs + loss_K + loss_delta - loss_offdia + loss_upper
         loss.backward()
         return loss
 
