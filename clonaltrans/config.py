@@ -23,12 +23,11 @@ class Configuration():
         self.alpha = 0.01
         # float, parameter to adjust the magnitude of loss on base K, default 0.01
         self.beta = 0.01
-
-        self.num_epochs = 1000
         
-        # optimizer & scheduler related
-        self.learning_rate = 0.01
-        self.lrs_ms = [300, 500, 600, 700, 800]
+        #* OPTIMIZER & SCHEDULER
+        self.learning_rate = 0.05
+        self.num_epochs = 1500
+        self.lrs_ms = [100 * i for i in range(1, 15)]
         self.lrs_gamma = 0.5
 
         # Adjoint sensitivity method is used to compute gradients of the loss function w.r.t. the parameters of the ODE solver

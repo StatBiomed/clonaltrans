@@ -24,19 +24,19 @@ def activation_helper(activation):
 class ODEBlock(nn.Module):
     def __init__(
         self, 
-        N, 
-        L, 
+        num_tpoints: int = 4,
+        num_clones: int = 11,
+        num_pops: int = 11,
         hidden_dim: int = 16, 
         activation: str = 'softplus', 
-        config: any = None
+        num_layers: int = 1
     ):
         super(ODEBlock, self).__init__()
-        self.N = N
-        self.L = L
         self.nfe = 0
-        self.config = config
+        self.num_layers = num_layers
+        self.std = Parameter(torch.ones((1, num_clones, num_pops), dtype=torch.float32), requires_grad=True)
 
-        if config.num_layers == 1:
+        if self.num_layers == 1:
             '''
             ODE function dydt = K1 * y + K2 * y + bias (optional) with KaiMing Initialization
             K1, >= 0, upper off-diagonal, other populations flow into designated population
@@ -46,9 +46,9 @@ class ODEBlock(nn.Module):
 
             self.K1, self.K2 = [], []
 
-            for clone in range(N.shape[1]):
-                K1 = torch.empty((N.shape[2], N.shape[2]))
-                K2 = torch.empty((1, N.shape[2]))
+            for clone in range(num_clones):
+                K1 = torch.empty((num_pops, num_pops))
+                K2 = torch.empty((1, num_pops))
 
                 self.reset_parameters(K1, None)
                 self.reset_parameters(K2, None)
@@ -59,15 +59,15 @@ class ODEBlock(nn.Module):
             self.K1 = Parameter(torch.stack(self.K1), requires_grad=True)
             self.K2 = Parameter(torch.stack(self.K2).squeeze(), requires_grad=True)
 
-        if config.num_layers == 2:
+        if self.num_layers == 2:
             #* Batch processing 2 layer MLP for each individual clone with KaiMing Initialization
             self.encode, self.encode_bias = [], None
             self.decode, self.decode_bias = [], None
             self.activation = activation_helper(activation)
 
-            for clone in range(N.shape[1]):
-                encode = torch.empty((hidden_dim, N.shape[2]))
-                decode = torch.empty((N.shape[2], hidden_dim))
+            for clone in range(num_clones):
+                encode = torch.empty((hidden_dim, num_pops))
+                decode = torch.empty((num_pops, hidden_dim))
 
                 self.reset_parameters(encode, None)
                 self.reset_parameters(decode, None)
@@ -90,12 +90,12 @@ class ODEBlock(nn.Module):
             nn.init.uniform_(bias, -bound, bound)
 
     def extra_repr(self) -> str:
-        if self.config.num_layers == 1:
+        if self.num_layers == 1:
             return 'K1 (clone, pop, pop) = {}, \nK2 (clone, pop) = {}'.format(
                 self.K1.shape, self.K2.shape
             )
         
-        if self.config.num_layers == 2:
+        if self.num_layers == 2:
             return 'encode (clone, pop, hidden) = {}, \nencode_bias={}, \ndecode (clone, hidden, pop) = {}, \ndecode_bias={}'.format(
                 self.encode.shape, self.encode_bias is not None, self.decode.shape, self.decode_bias is not None
             )
@@ -110,7 +110,7 @@ class ODEBlock(nn.Module):
 
             return z
         
-        if self.config.num_layers == 2:
+        if self.num_layers == 2:
             z = torch.bmm(y.unsqueeze(1), self.encode)
             z = self.activation(z)
             z = torch.bmm(z, self.decode).squeeze()

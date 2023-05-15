@@ -4,10 +4,11 @@ from torchdiffeq import odeint_adjoint, odeint
 from tqdm import tqdm
 
 from .ode_block import ODEBlock
-from .utils import timeit, pbar_tb_description, input_data_form
+from .utils import timeit, pbar_tb_description, input_data_form, tb_scalar
 
 MSE = nn.MSELoss(reduction='mean')
 SmoothL1 = nn.SmoothL1Loss(reduction='mean', beta=1.0)
+GaussianNLL = nn.GaussianNLLLoss(reduction='mean')
 MAE = nn.L1Loss(reduction='mean')
 
 class CloneTranModel(nn.Module):
@@ -21,21 +22,22 @@ class CloneTranModel(nn.Module):
         super(CloneTranModel, self).__init__()
         self.N = N
         self.L = L
-        self.atol = 1e-1
+        self.atol = 0.0
         self.exponent = 1 / 4
 
-        self.input_N = input_data_form(N, config.input_form, exponent=self.exponent)
+        self.input_N = input_data_form(N, config.input_form, atol=self.atol, exponent=self.exponent)
         print (f'\nData format: {config.input_form}. Mean of input data: {self.input_N.mean().cpu():.3f}')
 
         self.config = config
         self.writer = writer
 
         self.ode_func = ODEBlock(
-            N=N, 
-            L=torch.broadcast_to(L.unsqueeze(0), (N.shape[1], N.shape[2], N.shape[2])),
+            num_tpoints=N.shape[0],
+            num_clones=N.shape[1],
+            num_pops=N.shape[2],
             hidden_dim=config.hidden_dim, 
             activation=config.activation, 
-            config=config
+            num_layers=config.num_layers
         )
         print (self.ode_func)
         
@@ -65,6 +67,7 @@ class CloneTranModel(nn.Module):
         self.oppo_L = (self.oppo_L == 0).to(torch.float32)
 
         self.used_L = (self.oppo_L == 0).to(torch.float32)
+        self.oppo_L_nondia = (self.L == 0).to(torch.float32)
 
     def get_matrix_K(self, eval=False):
         '''
@@ -74,14 +77,14 @@ class CloneTranModel(nn.Module):
         '''
         
         if self.config.num_layers == 1:
-            if eval:
-                matrix_K = torch.square(self.ode_func.K1) * self.ode_func.L
+            matrix_K = torch.square(self.ode_func.K1)
 
+            if eval:
                 for clone in range(matrix_K.shape[0]):
                     for pop in range(matrix_K.shape[1]):
                         matrix_K[clone, pop, pop] += self.ode_func.K2[clone, pop]
-                
-                return matrix_K
+
+                return matrix_K * 4
             else:
                 return torch.zeros((self.L.shape))
         
@@ -89,13 +92,13 @@ class CloneTranModel(nn.Module):
             matrix_K = torch.bmm(self.ode_func.encode, self.ode_func.decode)
 
             if eval:
-                return matrix_K
+                return matrix_K * 4
             else:
                 return matrix_K * self.oppo_L, \
                     ((matrix_K * self.L) < 0).to(torch.float32) * matrix_K, \
                     (((matrix_K * 4 - 6.) * self.used_L) > 0).to(torch.float32) * (matrix_K * 4 - 6.)
 
-    def compute_loss(self, y_pred, epoch, pbar, y_pred_eval=None):
+    def compute_loss(self, y_pred, epoch, pbar):
         self.matrix_K, off_diagonal, upper_bound = self.get_matrix_K()
 
         loss_obs = SmoothL1(y_pred * self.mask, self.input_N * self.mask)
@@ -105,9 +108,15 @@ class CloneTranModel(nn.Module):
         loss_offdia = 0.01 * torch.sum(off_diagonal)
         loss_upper = 0.01 * torch.sum(upper_bound)
         
+        tb_scalar(
+            ['Loss/LR', 'NFE/Forward'],
+            [self.optimizer.param_groups[0]['lr'], self.ode_func.nfe],
+            epoch, self.writer
+        )
+
         descrip = pbar_tb_description(
-            ['Loss/Delta', 'Loss/K', 'Loss/Obs', 'Loss/LR', 'NFE/Forward', 'Loss/OffDia', 'Loss/Upper'],
-            [loss_delta.item(), loss_K.item(), loss_obs.item(), self.optimizer.param_groups[0]['lr'], self.ode_func.nfe, loss_offdia.item(), loss_upper.item()],
+            ['Loss/Delta', 'Loss/K', 'Loss/Obs', 'Loss/OffDia', 'Loss/Upper'],
+            [loss_delta.item(), loss_K.item(), loss_obs.item(), loss_offdia.item(), loss_upper.item()],
             epoch, self.writer
         )
         pbar.set_description(descrip)
@@ -146,6 +155,7 @@ class CloneTranModel(nn.Module):
     @torch.no_grad()
     def eval_model(self, t_eval, log_output=False):
         self.ode_func.eval()
+        self.variance = torch.square(self.ode_func.std)
 
         if self.config.adjoint:
             y_pred = odeint_adjoint(self.ode_func, self.input_N[0], t_eval, method='dopri5')
@@ -153,11 +163,11 @@ class CloneTranModel(nn.Module):
             y_pred = odeint(self.ode_func, self.input_N[0], t_eval, method='dopri5')
         
         if self.config.input_form in ['raw', 'shrink', 'root']:
-            return y_pred * self.mask
+            return y_pred
         
         elif self.config.input_form == 'log' and log_output:
             self.mask_log = torch.broadcast_to((self.mask == 0), y_pred.shape)
             y_pred[self.mask_log] = torch.log(torch.tensor(self.atol))
             return y_pred
         
-        else: return (torch.exp(y_pred) - self.atol) * self.mask
+        else: return (torch.exp(y_pred) - self.atol)

@@ -1,9 +1,12 @@
 def run_model(
     config, 
     t_observed,
-    trail_name: str = ''
+    trail_name: str = '',
+    N: any = None,
+    L: any = None
 ):
-    from .utils import set_seed, init_config_summary, get_topo_obs
+    from .utils import set_seed, init_config_summary
+    from .datasets import get_topo_obs
     config = init_config_summary(config)
     set_seed(config.seed)
 
@@ -18,8 +21,8 @@ def run_model(
 
     from .clonaltrans import CloneTranModel
     model = CloneTranModel(
-        N=array_total, 
-        L=paga, 
+        N=array_total if N == None else N, 
+        L=paga if L == None else L, 
         config=config,
         writer=writer
     ).to(config.gpu)
