@@ -22,10 +22,9 @@ class CloneTranModel(nn.Module):
         super(CloneTranModel, self).__init__()
         self.N = N
         self.L = L
-        self.atol = 0.0
         self.exponent = 1 / 4
 
-        self.input_N = input_data_form(N, config.input_form, atol=self.atol, exponent=self.exponent)
+        self.input_N = input_data_form(N, config.input_form, exponent=self.exponent)
         print (f'\nData format: {config.input_form}. Mean of input data: {self.input_N.mean().cpu():.3f}')
 
         self.config = config
@@ -59,7 +58,7 @@ class CloneTranModel(nn.Module):
         )
 
     def get_masks(self):
-        self.mask = (self.N.sum(0) != 0).to(torch.float32).unsqueeze(0)
+        # self.mask = (self.N.sum(0) != 0).to(torch.float32).unsqueeze(0)
 
         self.oppo_L = self.L.clone()
         self.oppo_L.fill_diagonal_(1)
@@ -86,7 +85,11 @@ class CloneTranModel(nn.Module):
 
                 return matrix_K * 4
             else:
-                return torch.zeros((self.L.shape))
+                return matrix_K * 4 * self.oppo_L_nondia, \
+                    torch.tensor([0.]), \
+                    torch.tesnor([0.])
+                    # ((torch.abs(self.ode_func.K2 * 4) - 10) > 0).to(torch.float32) * (torch.abs(self.ode_func.K2 * 4) - 10)
+                    # (((matrix_K * 4 - 20.) * self.used_L) > 0).to(torch.float32) * (matrix_K * 4 - 20.)
         
         if self.config.num_layers == 2:
             matrix_K = torch.bmm(self.ode_func.encode, self.ode_func.decode)
@@ -101,7 +104,12 @@ class CloneTranModel(nn.Module):
     def compute_loss(self, y_pred, epoch, pbar):
         self.matrix_K, off_diagonal, upper_bound = self.get_matrix_K()
 
-        loss_obs = SmoothL1(y_pred * self.mask, self.input_N * self.mask)
+        if self.config.include_var:
+            var = torch.square(self.ode_func.std)
+            var = torch.broadcast_to(var, self.input_N.shape)
+            loss_obs = GaussianNLL(self.input_N, y_pred, var)
+        else:
+            loss_obs = SmoothL1(y_pred, self.input_N)
 
         loss_K = self.config.beta * torch.sum(torch.abs(self.matrix_K[-1]))
         loss_delta = self.config.alpha * torch.sum(torch.abs(self.matrix_K[:-1]))    
@@ -166,8 +174,6 @@ class CloneTranModel(nn.Module):
             return y_pred
         
         elif self.config.input_form == 'log' and log_output:
-            self.mask_log = torch.broadcast_to((self.mask == 0), y_pred.shape)
-            y_pred[self.mask_log] = torch.log(torch.tensor(self.atol))
             return y_pred
         
-        else: return (torch.exp(y_pred) - self.atol)
+        else: return (torch.exp(y_pred) - 1.0)

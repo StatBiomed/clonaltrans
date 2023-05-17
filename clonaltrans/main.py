@@ -1,7 +1,8 @@
 def run_model(
     config, 
     t_observed,
-    trail_name: str = '',
+    t_norm: bool = False,
+    data_dir: str = './data',
     N: any = None,
     L: any = None
 ):
@@ -11,10 +12,10 @@ def run_model(
     set_seed(config.seed)
 
     from torch.utils.tensorboard import SummaryWriter
-    writer = SummaryWriter(log_dir=None, comment=trail_name)
+    writer = SummaryWriter(log_dir=None)
 
     paga, array_total = get_topo_obs(
-        data_dir='./data', 
+        data_dir=data_dir, 
         init_day_zero=True,
         device=config.gpu
     )
@@ -29,6 +30,7 @@ def run_model(
 
     t_observed = (t_observed - t_observed[0]) / (t_observed[-1] - t_observed[0])
     model.train_model(t_observed.to(config.gpu))
+    model.data_dir = data_dir
 
     model.writer.flush()
     model.writer.close()

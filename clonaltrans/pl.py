@@ -6,6 +6,7 @@ import seaborn as sns
 import numpy as np
 import pandas as pd
 import torch
+import os
 
 MSE = nn.MSELoss(reduction='mean')
 SmoothL1 = nn.SmoothL1Loss(reduction='mean', beta=1.0)
@@ -39,9 +40,9 @@ def mse_corr(
     rows, cols, figsize = get_subplot_dimensions(num_t, fig_height_per_row=4)
     fig, axes = plt.subplots(rows, cols, figsize=figsize)
 
-    anno = pd.read_csv('./data/annotations.csv')
-    if hue == 'pop':
-        pop = np.broadcast_to(anno['populations'].values, (observations[0].shape)).flatten()
+    # anno = pd.read_csv(os.path.join(data_dir, 'annotations.csv'))
+    # if hue == 'pop':
+    #     pop = np.broadcast_to(anno['populations'].values, (observations[0].shape)).flatten()
 
     for n in range(num_t):
         loss = SmoothL1(observations[n], predictions[n])
@@ -81,6 +82,7 @@ def plot_gvi(data, axes, row, col, t_axis, label, color):
             )
 
 def grid_visual_interpolate(
+    model,
     data_values: list = [any, any, None],
     data_names: list = ['Observations', 'Predictions', None],
     data_tpoint: list = [any, None, None],
@@ -103,7 +105,7 @@ def grid_visual_interpolate(
     t_pred = data_tpoint[1].cpu().numpy()
     t_pred2 = data_tpoint[2].cpu().numpy() if data_tpoint[2] != None else None
 
-    anno = pd.read_csv('./data/annotations.csv')
+    anno = pd.read_csv(os.path.join(model.data_dir, 'annotations.csv'))
 
     if variance is not False:
         lb = pred - np.sqrt(variance)
@@ -148,7 +150,7 @@ def grid_visual_interpolate(
 
 def clone_specific_K(model, index_clone=0):
     K = (model.get_matrix_K(eval=True)).detach().cpu().numpy()
-    anno = pd.read_csv('./data/annotations.csv')
+    anno = pd.read_csv(os.path.join(model.data_dir, 'annotations.csv'))
 
     transition_K = pd.DataFrame(
         index=anno['populations'].values, 
@@ -161,18 +163,18 @@ def clone_specific_K(model, index_clone=0):
 
 def diff_K_between_clones(model, index_pop=0, direction='outbound'):
     K = (model.get_matrix_K(eval=True)).detach().cpu().numpy()
-    anno = pd.read_csv('./data/annotations.csv')
+    anno = pd.read_csv(os.path.join(model.data_dir, 'annotations.csv'))
     pop_name = anno['populations'].values[index_pop]
 
     if direction == 'outbound':
         transition_K = pd.DataFrame(
-            index=anno['clones'].values,
+            index=anno['clones'].values[:K.shape[0]],
             columns=pop_name + ' -> ' + anno['populations'].values,
             data=K[:, index_pop, :]
         ).T
     if direction == 'inbound':
         transition_K = pd.DataFrame(
-            index=anno['clones'].values,
+            index=anno['clones'].values[:K.shape[0]],
             columns=anno['populations'].values + ' -> ' + pop_name,
             data=K[:, :, index_pop]
         ).T 
@@ -203,10 +205,10 @@ def rates_in_paga(model):
 def rates_diagonal(model):
     K = (model.get_matrix_K(eval=True))
     diag = torch.diagonal(K, dim1=-2, dim2=-1).detach().cpu().numpy()
-    anno = pd.read_csv('./data/annotations.csv')
+    anno = pd.read_csv(os.path.join(model.data_dir, 'annotations.csv'))
 
     transition_K = pd.DataFrame(
-        index=anno['clones'].values, 
+        index=anno['clones'].values[:K.shape[0]], 
         columns=anno['populations'].values, 
         data=diag
     ).T

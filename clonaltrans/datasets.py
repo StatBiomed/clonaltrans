@@ -26,16 +26,16 @@ def get_topo_obs(
     print (f'Input cell data (num_timepoints {array_ori.shape[0]}, num_clones {array_ori.shape[1]}, num_populations {array_ori.shape[2]}) loaded.')
 
     if init_day_zero:
-        init_con = pd.read_csv('./data/initial_condition.csv', index_col=0).astype(np.float32)
+        init_con = pd.read_csv(os.path.join(data_dir, 'initial_condition.csv'), index_col=0).astype(np.float32)
         day_zero = np.zeros((array_ori.shape[1], array_ori.shape[2]))
         day_zero[:, 0] = init_con['leiden'].values
         array_ori = torch.concatenate((torch.tensor(day_zero, dtype=torch.float32).unsqueeze(0), array_ori), axis=0)
         print (f'Day 0 has been added. Input data shape: {array_ori.shape}')
 
     # generate background cells
-    background = torch.sum(array_ori, axis=1).unsqueeze(1)
+    background = torch.mean(array_ori, axis=1).unsqueeze(1)
     array_total = torch.concatenate((array_ori, background), axis=1)
-    print (f'Background reference cells generated. Input data shape: {array_total.shape}')
+    print (f'Background reference cells generated (mean of all other clones). Input data shape: {array_total.shape}')
 
     return torch.tensor(paga.values, dtype=torch.float32, device=device), array_total.to(device)
 

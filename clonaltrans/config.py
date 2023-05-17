@@ -23,6 +23,8 @@ class Configuration():
         self.alpha = 0.01
         # float, parameter to adjust the magnitude of loss on base K, default 0.01
         self.beta = 0.01
+
+        self.include_var = True
         
         #* OPTIMIZER & SCHEDULER
         self.learning_rate = 0.05

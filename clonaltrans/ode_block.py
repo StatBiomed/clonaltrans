@@ -103,10 +103,10 @@ class ODEBlock(nn.Module):
     def forward(self, t, y):
         self.nfe += 1
 
-        if self.config.num_layers == 1:
-            z = torch.bmm(y.unsqueeze(1), torch.square(self.K1) * self.L).squeeze()
+        if self.num_layers == 1:
+            z = torch.bmm(y.unsqueeze(1), torch.square(self.K1)).squeeze()
             z = z + y * self.K2 
-            z = z - torch.sum(y.unsqueeze(1) * torch.square(self.K1.mT) * self.L.mT, dim=1).squeeze()
+            z = z - torch.sum(y.unsqueeze(1) * torch.square(self.K1.mT), dim=1)
 
             return z
         

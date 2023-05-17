@@ -6,6 +6,7 @@ from scipy import interpolate
 from torchdiffeq import odeint
 from torch import nn
 from scipy.optimize import minimize_scalar
+from torch.nn.parameter import Parameter
 
 GaussianNLL = nn.GaussianNLLLoss(reduction='mean')
 
@@ -81,20 +82,20 @@ def pbar_tb_description(var_names, var_lists, iter, writer):
     
     return res
 
-def input_data_form(N, input_form='log', atol=0.0, exponent=1/4):
+def input_data_form(N, input_form='log', exponent=1/4):
     assert input_form in ['log', 'raw', 'shrink', 'root']
 
     if input_form == 'log':
-        return torch.log(N + atol)
+        return torch.log(N + 1.0)
     if input_form == 'raw':
         return N
     if input_form == 'shrink':
         return N / 1e5
     if input_form == 'root':
-        return torch.pow(N + atol, exponent=exponent)
+        return torch.pow(N, exponent=exponent)
 
 def val_thres(K, thres=6.):
-    remain = np.stack(np.where(K > thres))
+    remain = np.stack(np.where(np.abs(K) > thres))
     print (f'# of entries where transition rates > {thres}: {remain.shape[1]}')
     print (remain, '\n')
 
@@ -103,7 +104,6 @@ def validate_K(model):
 
     val_thres(K, 10.)
     val_thres(K, 6.)
-    val_thres(K, 4.)
 
     non_dia_mask = model.L.unsqueeze(0).cpu().numpy()
     non_diagonal = K * non_dia_mask
