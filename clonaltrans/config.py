@@ -25,11 +25,11 @@ class Configuration():
         self.beta = 0.01
 
         self.include_var = True
-        
+
         #* OPTIMIZER & SCHEDULER
         self.learning_rate = 0.05
-        self.num_epochs = 1500
-        self.lrs_ms = [100 * i for i in range(1, 15)]
+        self.num_epochs = 1000
+        self.lrs_ms = [200, 400, 600, 800]
         self.lrs_gamma = 0.5
 
         # Adjoint sensitivity method is used to compute gradients of the loss function w.r.t. the parameters of the ODE solver
@@ -40,4 +40,6 @@ class Configuration():
 
         #* DATA PRE-PROCESSING *
         # parameter for specifing input data type to use, raw, log, root, shrink, etc.
-        self.input_form = 'root'
+        self.input_form = 'raw'
+
+        self.exponent = 1. / 1.

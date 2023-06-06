@@ -95,7 +95,7 @@ def grid_visual_interpolate(
     data_values[1] must be the predicted data
     '''
         
-    fig, axes = plt.subplots(data_values[0].shape[1], data_values[0].shape[2], figsize=(33, 20), sharex=True)
+    fig, axes = plt.subplots(data_values[0].shape[1], data_values[0].shape[2], figsize=(40, 15), sharex=True)
     
     obs = data_values[0].cpu().numpy()
     pred = data_values[1].detach().cpu().numpy()
@@ -114,11 +114,11 @@ def grid_visual_interpolate(
         lb[lb < 0] = 0
         ub[ub < 0] = 0
 
-    if raw_data:
-        obs = np.power(obs, 4)
-        pred = np.power(pred, 4)
-        if variance is not False:
-            lb, ub = np.power(lb, 4), np.power(ub, 4)
+    # if raw_data:
+    #     obs = np.power(obs, (1 / model.exponent))
+    #     pred = np.power(pred, (1 / model.exponent))
+    #     if variance is not False:
+    #         lb, ub = np.power(lb, (1 / model.exponent)), np.power(ub, (1 / model.exponent))
 
     for row in range(data_values[0].shape[1]):
         for col in range(data_values[0].shape[2]):

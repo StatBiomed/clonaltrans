@@ -123,3 +123,34 @@ def eval_predictions(model, t_observed, log_output=False, save=False):
     predictions = model.eval_model(t_observed_norm, log_output=log_output)
 
     mse_corr(observations[1:], predictions[1:], t_observed[1:].cpu().numpy(), save=save)
+
+def get_matrix_K_log(self, eval=False):
+    if self.config.num_layers == 1:
+        K1_square = torch.square(self.ode_func.K1) # c*p*p
+        matrix_K = self.input_N.unsqueeze(2) * K1_square.unsqueeze(0)
+        
+        if eval:
+            K2_ = self.input_N * self.ode_func.K2.unsqueeze(0)
+            for tp in range(matrix_K.shape[0]):
+                for clone in range(matrix_K.shape[1]):
+                    for pop in range(matrix_K.shape[2]):
+                        matrix_K[tp, clone, pop, pop] += K2_[tp, clone, pop]
+            
+            return matrix_K
+        else:
+            return matrix_K * self.oppo_L_nondia, \
+                torch.tensor([0.]), \
+                torch.tensor([0.])
+    
+    if self.config.num_layers == 2:
+        raise ValueError('2-layer model is currently not supported for time-variant K')
+
+def train(self, epoch, t_observed, pbar):
+    y_pred = timeit(
+        odeint_adjoint if self.config.adjoint else odeint, epoch, self.writer
+    )(
+        self.ode_func, self.input_N[0], t_observed, method='dopri5',
+        rtol=1e-5, options=dict(dtype=torch.float32),
+    )
+
+    loss = timeit(self.compute_loss, epoch, self.writer)(y_pred, epoch, pbar)
