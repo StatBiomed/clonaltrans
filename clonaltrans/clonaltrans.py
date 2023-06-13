@@ -22,10 +22,10 @@ class CloneTranModel(nn.Module):
         super(CloneTranModel, self).__init__()
         self.N = N
         self.L = L
-        self.exponent = 1 / 4
+        self.exponent = config.exponent
 
         self.input_N = input_data_form(N, config.input_form, exponent=self.exponent)
-        print (f'\nData format: {config.input_form}. Mean of input data: {self.input_N.mean().cpu():.3f}')
+        print (f'\nData format: {config.input_form}. Exponent: {self.exponent}. Mean of input data: {self.input_N.mean().cpu():.3f}')
 
         self.config = config
         self.writer = writer
@@ -58,7 +58,7 @@ class CloneTranModel(nn.Module):
         )
 
     def get_masks(self):
-        # self.mask = (self.N.sum(0) != 0).to(torch.float32).unsqueeze(0)
+        # self.mask = torch.broadcast_to((self.N.sum(0) != 0).to(torch.float32).unsqueeze(0), (self.N.shape[0], self.N.shape[1], self.N.shape[2]))
 
         self.oppo_L = self.L.clone()
         self.oppo_L.fill_diagonal_(1)
@@ -68,7 +68,7 @@ class CloneTranModel(nn.Module):
         self.used_L = (self.oppo_L == 0).to(torch.float32)
         self.oppo_L_nondia = (self.L == 0).to(torch.float32)
 
-    def get_matrix_K(self, eval=False):
+    def get_matrix_K(self, eval=False, tpoint=1.0):
         '''
         matrix_K (num_clones, num_populations, num_populations)
         matrix_K[-1] = base K(1) for background cells
@@ -76,33 +76,55 @@ class CloneTranModel(nn.Module):
         '''
         
         if self.config.num_layers == 1:
-            matrix_K = torch.square(self.ode_func.K1)
+            matrix_K = torch.square(self.ode_func.K1) * self.ode_func.K1_mask
 
             if eval:
                 for clone in range(matrix_K.shape[0]):
                     for pop in range(matrix_K.shape[1]):
                         matrix_K[clone, pop, pop] += self.ode_func.K2[clone, pop]
 
-                return matrix_K * 4
+                return matrix_K * (1 / self.exponent)
             else:
-                return matrix_K * 4 * self.oppo_L_nondia, \
-                    torch.tensor([0.]), \
-                    torch.tesnor([0.])
-                    # ((torch.abs(self.ode_func.K2 * 4) - 10) > 0).to(torch.float32) * (torch.abs(self.ode_func.K2 * 4) - 10)
-                    # (((matrix_K * 4 - 20.) * self.used_L) > 0).to(torch.float32) * (matrix_K * 4 - 20.)
+                return matrix_K * (1 / self.exponent) * self.oppo_L_nondia, \
+                    ((self.ode_func.K2 * (1 / self.exponent) - 6) > 0).to(torch.float32) * (self.ode_func.K2 * (1 / self.exponent) - 6)
         
         if self.config.num_layers == 2:
             matrix_K = torch.bmm(self.ode_func.encode, self.ode_func.decode)
 
             if eval:
-                return matrix_K * 4
+                return matrix_K 
             else:
-                return matrix_K * self.oppo_L, \
-                    ((matrix_K * self.L) < 0).to(torch.float32) * matrix_K, \
-                    (((matrix_K * 4 - 6.) * self.used_L) > 0).to(torch.float32) * (matrix_K * 4 - 6.)
+                return torch.tensor([0.]), \
+                    torch.tensor([0.])
+        
+        if self.config.num_layers == 3:            
+            if eval:
+                t_evaluation = torch.tensor([0.0, tpoint]).to(self.config.gpu)
+                predictions = self.eval_model(t_evaluation)[1]
+                matrix_K, k2 = self.ode_func.get_K1_K2(predictions)
+
+                for clone in range(matrix_K.shape[0]):
+                    for pop in range(matrix_K.shape[1]):
+                        matrix_K[clone, pop, pop] += k2[clone, pop]
+
+                return matrix_K * (1 / self.exponent)
+            
+            else:
+                matrix_K, res_k2 = [], []
+
+                for idx_time in range(self.input_N.shape[0]):
+                    k1, k2 = self.ode_func.get_K1_K2(self.input_N[idx_time])
+                    matrix_K.append(k1)
+                    res_k2.append(k2)
+
+                matrix_K = torch.stack(matrix_K)
+                res_k2 = torch.stack(res_k2)
+                    
+                return matrix_K * self.oppo_L_nondia.unsqueeze(0).unsqueeze(0), \
+                    ((res_k2 * (1 / self.exponent) - 6) > 0).to(torch.float32) * (res_k2 * (1 / self.exponent) - 6)
 
     def compute_loss(self, y_pred, epoch, pbar):
-        self.matrix_K, off_diagonal, upper_bound = self.get_matrix_K()
+        self.matrix_K, upper_bound = self.get_matrix_K()
 
         if self.config.include_var:
             var = torch.square(self.ode_func.std)
@@ -113,9 +135,8 @@ class CloneTranModel(nn.Module):
 
         loss_K = self.config.beta * torch.sum(torch.abs(self.matrix_K[-1]))
         loss_delta = self.config.alpha * torch.sum(torch.abs(self.matrix_K[:-1]))    
-        loss_offdia = 0.01 * torch.sum(off_diagonal)
         loss_upper = 0.01 * torch.sum(upper_bound)
-        
+
         tb_scalar(
             ['Loss/LR', 'NFE/Forward'],
             [self.optimizer.param_groups[0]['lr'], self.ode_func.nfe],
@@ -123,14 +144,14 @@ class CloneTranModel(nn.Module):
         )
 
         descrip = pbar_tb_description(
-            ['Loss/Delta', 'Loss/K', 'Loss/Obs', 'Loss/OffDia', 'Loss/Upper'],
-            [loss_delta.item(), loss_K.item(), loss_obs.item(), loss_offdia.item(), loss_upper.item()],
+            ['Loss/Delta', 'Loss/K', 'Loss/Obs', 'Loss/Upper'],
+            [loss_delta.item(), loss_K.item(), loss_obs.item(), loss_upper.item()],
             epoch, self.writer
         )
         pbar.set_description(descrip)
         self.ode_func.nfe = 0
 
-        loss = loss_obs + loss_K + loss_delta - loss_offdia + loss_upper
+        loss = loss_obs + loss_K + loss_delta + loss_upper
         loss.backward()
         return loss
 
@@ -152,7 +173,7 @@ class CloneTranModel(nn.Module):
                 odeint_adjoint if self.config.adjoint else odeint, epoch, self.writer
             )(
                 self.ode_func, self.input_N[0], t_observed, method='dopri5',
-                rtol=1e-5, options=dict(dtype=torch.float32),
+                rtol=1e-4, atol=1e-4, options=dict(dtype=torch.float32), 
             )
 
             loss = timeit(self.compute_loss, epoch, self.writer)(y_pred, epoch, pbar)

@@ -154,3 +154,21 @@ def train(self, epoch, t_observed, pbar):
     )
 
     loss = timeit(self.compute_loss, epoch, self.writer)(y_pred, epoch, pbar)
+
+def get_scheduler(
+    optimizer, 
+    num_warmup_steps, 
+    d_model=1.0, 
+    last_epoch=-1
+):
+    '''
+    scheduler = get_scheduler(opt, 200, d, -1)
+    '''
+    from torch.optim.lr_scheduler import LambdaLR
+
+    def lr_lambda(current_step):
+        current_step += 1
+        arg1 = current_step ** -0.5
+        arg2 = current_step * (num_warmup_steps ** -1.5)
+        return (d_model ** -0.5) * min(arg1, arg2)
+    return LambdaLR(optimizer, lr_lambda, last_epoch)
