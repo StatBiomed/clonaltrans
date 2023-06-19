@@ -9,25 +9,28 @@ class Configuration():
         #* MODEL ARCHETICTURE *
         # Avoiding non-smooth non-linearities such as ReLU and LeakyReLU 
         # and prefer non-linearities with a theoretically unique adjoint / gradient. 
-        # Empirically, SoftPlus is better than GELU. NOT valid when self.num_layers = 1
+        # Empirically, SoftPlus is better than GELU. NOT valid when self.K_type = 'const'
         self.activation = 'softplus'
 
-        self.hidden_dim = 16
+        self.hidden_dim = 32
 
-        # int, number of linear layers used in model architecture, default 2. 
-        # self.num_layers = 1 also supported, whilst performance not ideal
-        self.num_layers = 2
+        # str, whether constant / dynamic / mixture K is used in model architecture, default const. 
+        self.K_type = 'const'
 
         #* MODEL FITTING *
-        # float, parameter to adjust the magnitude of loss on Δ, default 0.01
-        self.alpha = 0.01
-        # float, parameter to adjust the magnitude of loss on base K, default 0.01
-        self.beta = 0.01
+        # float, adjust penalty term on entries not in PAGA L (including diagonal) 
+        # and upper bound of diagonal line, default 0.05
+        self.alpha = 0.05
+        # float, adjust penalty term on time-variant K(t), 0 -> no constraint
+        # higher value -> K is more determined and resembles self.K_type = 'const', default 1e-3
+        self.beta = 1e-3
 
         self.include_var = True
 
+        self.lam = 0.0
+
         #* OPTIMIZER & SCHEDULER
-        self.learning_rate = 0.05
+        self.learning_rate = 1e-3
         self.num_epochs = 1000
         self.lrs_ms = [200, 400, 600, 800]
         self.lrs_gamma = 0.5

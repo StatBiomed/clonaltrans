@@ -2,7 +2,7 @@ def run_model(
     config, 
     t_observed,
     t_norm: bool = False,
-    data_dir: str = './data',
+    data_dir: str = './data/V3_Mingze',
     N: any = None,
     L: any = None
 ):

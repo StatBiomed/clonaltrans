@@ -40,10 +40,6 @@ def mse_corr(
     rows, cols, figsize = get_subplot_dimensions(num_t, fig_height_per_row=4)
     fig, axes = plt.subplots(rows, cols, figsize=figsize)
 
-    # anno = pd.read_csv(os.path.join(data_dir, 'annotations.csv'))
-    # if hue == 'pop':
-    #     pop = np.broadcast_to(anno['populations'].values, (observations[0].shape)).flatten()
-
     for n in range(num_t):
         loss = SmoothL1(observations[n], predictions[n])
         x = observations[n].cpu().numpy().flatten()
@@ -98,11 +94,11 @@ def grid_visual_interpolate(
     fig, axes = plt.subplots(data_values[0].shape[1], data_values[0].shape[2], figsize=(40, 15), sharex=True)
     
     obs = data_values[0].cpu().numpy()
-    pred = data_values[1].detach().cpu().numpy()
+    pred = data_values[1].detach().cpu().numpy() if data_values[1] != None else None
     pred2 = data_values[2].detach().cpu().numpy() if data_values[2] != None else None
 
     t_obs = data_tpoint[0].cpu().numpy()
-    t_pred = data_tpoint[1].cpu().numpy()
+    t_pred = data_tpoint[1].cpu().numpy() if data_tpoint[1] != None else None
     t_pred2 = data_tpoint[2].cpu().numpy() if data_tpoint[2] != None else None
 
     anno = pd.read_csv(os.path.join(model.data_dir, 'annotations.csv'))
@@ -114,6 +110,7 @@ def grid_visual_interpolate(
         lb[lb < 0] = 0
         ub[ub < 0] = 0
 
+    # TODO convert variance from root scale to raw scale
     # if raw_data:
     #     obs = np.power(obs, (1 / model.exponent))
     #     pred = np.power(pred, (1 / model.exponent))
@@ -148,8 +145,8 @@ def grid_visual_interpolate(
     if save:
         plt.savefig(f'./figs/{save}.png', dpi=300, bbox_inches='tight')
 
-def clone_specific_K(model, index_clone=0):
-    K = (model.get_matrix_K(eval=True)).detach().cpu().numpy()
+def clone_specific_K(model, index_clone=0, tpoint=1.0, sep='mixture'):
+    K = (model.get_matrix_K(eval=True, tpoint=tpoint, sep=sep)).detach().cpu().numpy()
     anno = pd.read_csv(os.path.join(model.data_dir, 'annotations.csv'))
 
     transition_K = pd.DataFrame(
@@ -161,8 +158,8 @@ def clone_specific_K(model, index_clone=0):
     sns.heatmap(transition_K, annot=True, linewidths=.5, cmap='coolwarm', ax=axes)
     plt.title(f'Transition Matrix for Clone {index_clone}')
 
-def diff_K_between_clones(model, index_pop=0, direction='outbound'):
-    K = (model.get_matrix_K(eval=True)).detach().cpu().numpy()
+def diff_K_between_clones(model, index_pop=0, tpoint=1.0, direction='outbound', sep='mixture'):
+    K = (model.get_matrix_K(eval=True, tpoint=tpoint, sep=sep)).detach().cpu().numpy()
     anno = pd.read_csv(os.path.join(model.data_dir, 'annotations.csv'))
     pop_name = anno['populations'].values[index_pop]
 
@@ -184,26 +181,26 @@ def diff_K_between_clones(model, index_pop=0, direction='outbound'):
     plt.xticks(rotation=0)
     plt.title(f'Difference in transition rates between clones for {pop_name} ({direction})')
 
-def rates_notin_paga(model):
-    K = (model.get_matrix_K(eval=True)).detach().cpu().numpy()
+def rates_notin_paga(model, tpoint=1.0, sep='mixture'):
+    K = (model.get_matrix_K(eval=True, tpoint=tpoint, sep=sep)).detach().cpu().numpy()
     oppo = K * model.oppo_L.cpu().numpy()
     nonzeros = oppo[np.where(oppo != 0)]
 
     print ('All other entries not in topology graph L should be as close to 0 as possible, \nideally strictly equals to 0.')
-    print (f'# of entries: {np.sum(model.oppo_L.cpu().numpy())}, # of zeros: {np.sum(model.oppo_L.cpu().numpy()) - len(nonzeros)}, Details of nonzeros: ')
+    print (f'# of entries: {np.sum(model.oppo_L.cpu().numpy() * K.shape[0])}, # of zeros: {np.sum(model.oppo_L.cpu().numpy() * K.shape[0]) - len(nonzeros)}, Details of nonzeros: ')
     print (f'Max: {np.max(nonzeros):.6f}, Median: {np.median(nonzeros):.6f}, Min: {np.min(nonzeros):.6f}')
 
     sns.histplot(nonzeros, bins=10)
     plt.title(f'Distribution of non-zero rates not in PAGA')
 
-def rates_in_paga(model):
-    K = (model.get_matrix_K(eval=True)).detach().cpu().numpy()
-    used_K = K[np.where(model.used_L.cpu().numpy())]
+def rates_in_paga(model, tpoint=1.0, sep='mixture'):
+    K = (model.get_matrix_K(eval=True, tpoint=tpoint, sep=sep)).detach().cpu().numpy()
+    used_K = K[np.where(np.broadcast_to(model.used_L.cpu().numpy(), K.shape))]
     sns.histplot(used_K, bins=30)
     plt.title(f'Distribution of rates in PAGA')
 
-def rates_diagonal(model):
-    K = (model.get_matrix_K(eval=True))
+def rates_diagonal(model, tpoint=1.0, sep='mixture'):
+    K = (model.get_matrix_K(eval=True, tpoint=tpoint, sep=sep))
     diag = torch.diagonal(K, dim1=-2, dim2=-1).detach().cpu().numpy()
     anno = pd.read_csv(os.path.join(model.data_dir, 'annotations.csv'))
 
@@ -216,3 +213,31 @@ def rates_diagonal(model):
     fig, axes = plt.subplots(figsize=(12, 6))
     sns.heatmap(transition_K, annot=True, linewidths=.5, cmap='coolwarm', ax=axes)
     plt.title(f'Diagonal of transition rates (Proliferation & Apoptosis)')
+
+def clone_dynamic_K(model, index_clone=0, sep='mixture', suffix=''):
+    import gif
+    gif.options.matplotlib['dpi'] = 300
+    anno = pd.read_csv(os.path.join(model.data_dir, 'annotations.csv'))
+
+    x = torch.linspace(0, int(model.t_observed[-1].item()), int(model.t_observed[-1].item() * 2 + 1)).round(decimals=1).to(model.config.gpu)
+    # x = torch.linspace(0, 1, 4).round(decimals=1).to(model.config.gpu)
+
+    @gif.frame
+    def plot(index_clone, tpoint, title):
+        K = (model.get_matrix_K(eval=True, tpoint=tpoint, sep=sep)).detach().cpu().numpy()
+
+        transition_K = pd.DataFrame(
+            index=anno['populations'].values, 
+            columns=anno['populations'].values, 
+            data=K[index_clone]
+        )
+
+        fig, axes = plt.subplots(figsize=(12, 6))
+        sns.heatmap(transition_K, annot=True, linewidths=.5, cmap='coolwarm', ax=axes)
+        plt.title(f'Transition Matrix for Clone {title} Day {tpoint.round(decimals=1)}')
+    
+    if index_clone == -1: title = 'BG'
+    else: title = index_clone
+
+    frames = [plot(index_clone, x[i], title) for i in range(len(x))]
+    gif.save(frames, f'K_dynamics_clone_{title}{suffix}.gif', duration=0.5, unit='seconds')

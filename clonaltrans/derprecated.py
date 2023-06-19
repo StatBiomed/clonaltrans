@@ -150,7 +150,7 @@ def train(self, epoch, t_observed, pbar):
         odeint_adjoint if self.config.adjoint else odeint, epoch, self.writer
     )(
         self.ode_func, self.input_N[0], t_observed, method='dopri5',
-        rtol=1e-5, options=dict(dtype=torch.float32),
+        rtol=1e-4, atol=1e-4, options=dict(dtype=torch.float32), 
     )
 
     loss = timeit(self.compute_loss, epoch, self.writer)(y_pred, epoch, pbar)
@@ -172,3 +172,80 @@ def get_scheduler(
         arg2 = current_step * (num_warmup_steps ** -1.5)
         return (d_model ** -0.5) * min(arg1, arg2)
     return LambdaLR(optimizer, lr_lambda, last_epoch)
+
+def simulation_2lK(
+    encode,
+    decode,
+    config,
+    t_simu=torch.tensor([0.0, 1.0, 2.0, 3.0]), 
+    y0=None,
+    noise_level=1e-2
+):
+    from .ode_block import ODEBlock
+    ode_func = ODEBlock(
+        num_clones=encode.shape[0],
+        num_pops=encode.shape[1],
+        hidden_dim=config.hidden_dim, 
+        activation=config.activation, 
+        num_layers=config.num_layers
+    )
+
+    ode_func.encode = Parameter(encode + torch.normal(0, 0.1, size=encode.shape).to(config.gpu), requires_grad=True)
+    ode_func.decode = Parameter(decode + torch.normal(0, 0.1, size=decode.shape).to(config.gpu), requires_grad=True)
+
+    array_total = odeint(ode_func, y0, t_simu, rtol=1e-5, method='dopri5', options=dict(dtype=torch.float32))
+
+    scale_factor = array_total.abs()
+    scale_factor[torch.rand_like(scale_factor) < 0.5] *= -1
+    array_total = array_total + scale_factor * torch.rand_like(array_total) * noise_level
+
+    array_total[array_total < 1] = 0
+    array_total = torch.round(array_total)
+
+    return array_total.to(config.gpu)
+
+def get_hessian(model, t_observed):
+    total_params = torch.concat([model.ode_func.K1.flatten(), model.ode_func.K2.flatten(), model.ode_func.std.flatten()])
+    hessian = torch.zeros((total_params.shape[0], total_params.shape[0]))
+
+    y_pred = odeint(model.ode_func, model.input_N[0], t_observed, method='dopri5', rtol=1e-5)
+    loss = model.compute_loss(y_pred, None, None, hessian=True)
+    loss.backward(create_graph=True)
+
+    grad = model.ode_func.std.grad
+    grad_flat = grad.view(-1)  # Flatten the gradient tensor
+    print (grad_flat)
+    
+    hessian_size = grad_flat.shape[0]
+    hessian_matrix = torch.zeros(hessian_size, hessian_size)
+
+    for i, g in enumerate(grad_flat):
+        if g.grad_fn is not None:  # Check if the gradient is not None
+            print (i, g, g.grad_fn)
+            g.backward(torch.ones_like(g), retain_graph=True)  # Compute the second-order gradient
+            hessian_matrix[i] = model.ode_func.std.grad.view(-1)  # Store the second-order gradient in the Hessian matrix
+            model.ode_func.std.grad.zero_()  # Clear the gradient for the next iteration
+
+    # for i, param_i in enumerate(model.ode_func.K1.flatten()):
+    #     for j, param_j in enumerate(model.ode_func.K1.flatten()):
+    #         param_i.requires_grad_()
+    #         grads1 = torch.autograd.grad(loss, param_i, create_graph=True)[0]
+    #         grads2 = torch.autograd.grad(grads1, param_j, create_graph=True)[0]
+            # hessian[i, j] = torch.autograd.grad(loss, param_j)[0]
+
+    import torch
+    import functorch
+    from torch.nn.utils import _stateless
+
+    model = torch.nn.Linear(2, 2)
+    inp = torch.rand(1, 2)
+    criterion = torch.nn.CrossEntropyLoss()
+
+    def loss(params):
+        out: torch.Tensor = _stateless.functional_call(model, {n: p for n, p in zip(names, params)}, inp)
+        return criterion (out, torch.zeros(len(inp), dtype=torch.long))
+
+    names = list(n for n, _ in model.named_parameters())
+    print(functorch.hessian(loss)(tuple(model.parameters())))
+
+    return hessian
