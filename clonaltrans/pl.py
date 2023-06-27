@@ -7,6 +7,8 @@ import numpy as np
 import pandas as pd
 import torch
 import os
+import gif
+gif.options.matplotlib['dpi'] = 300
 
 MSE = nn.MSELoss(reduction='mean')
 SmoothL1 = nn.SmoothL1Loss(reduction='mean', beta=1.0)
@@ -145,8 +147,8 @@ def grid_visual_interpolate(
     if save:
         plt.savefig(f'./figs/{save}.png', dpi=300, bbox_inches='tight')
 
-def clone_specific_K(model, index_clone=0, tpoint=1.0, sep='mixture'):
-    K = (model.get_matrix_K(eval=True, tpoint=tpoint, sep=sep)).detach().cpu().numpy()
+def clone_specific_K(model, K_type='const', index_clone=0, tpoint=1.0, sep='mixture'):
+    K = (model.get_matrix_K(K_type=K_type, eval=True, tpoint=tpoint, sep=sep)).detach().cpu().numpy()
     anno = pd.read_csv(os.path.join(model.data_dir, 'annotations.csv'))
 
     transition_K = pd.DataFrame(
@@ -158,8 +160,8 @@ def clone_specific_K(model, index_clone=0, tpoint=1.0, sep='mixture'):
     sns.heatmap(transition_K, annot=True, linewidths=.5, cmap='coolwarm', ax=axes)
     plt.title(f'Transition Matrix for Clone {index_clone}')
 
-def diff_K_between_clones(model, index_pop=0, tpoint=1.0, direction='outbound', sep='mixture'):
-    K = (model.get_matrix_K(eval=True, tpoint=tpoint, sep=sep)).detach().cpu().numpy()
+def diff_K_between_clones(model, K_type='const', index_pop=0, tpoint=1.0, direction='outbound', sep='mixture'):
+    K = (model.get_matrix_K(K_type=K_type, eval=True, tpoint=tpoint, sep=sep)).detach().cpu().numpy()
     anno = pd.read_csv(os.path.join(model.data_dir, 'annotations.csv'))
     pop_name = anno['populations'].values[index_pop]
 
@@ -181,8 +183,8 @@ def diff_K_between_clones(model, index_pop=0, tpoint=1.0, direction='outbound', 
     plt.xticks(rotation=0)
     plt.title(f'Difference in transition rates between clones for {pop_name} ({direction})')
 
-def rates_notin_paga(model, tpoint=1.0, sep='mixture'):
-    K = (model.get_matrix_K(eval=True, tpoint=tpoint, sep=sep)).detach().cpu().numpy()
+def rates_notin_paga(model, K_type='const', tpoint=1.0, sep='mixture'):
+    K = (model.get_matrix_K(K_type=K_type, eval=True, tpoint=tpoint, sep=sep)).detach().cpu().numpy()
     oppo = K * model.oppo_L.cpu().numpy()
     nonzeros = oppo[np.where(oppo != 0)]
 
@@ -193,14 +195,14 @@ def rates_notin_paga(model, tpoint=1.0, sep='mixture'):
     sns.histplot(nonzeros, bins=10)
     plt.title(f'Distribution of non-zero rates not in PAGA')
 
-def rates_in_paga(model, tpoint=1.0, sep='mixture'):
-    K = (model.get_matrix_K(eval=True, tpoint=tpoint, sep=sep)).detach().cpu().numpy()
+def rates_in_paga(model, K_type='const', tpoint=1.0, sep='mixture'):
+    K = (model.get_matrix_K(K_type=K_type, eval=True, tpoint=tpoint, sep=sep)).detach().cpu().numpy()
     used_K = K[np.where(np.broadcast_to(model.used_L.cpu().numpy(), K.shape))]
     sns.histplot(used_K, bins=30)
     plt.title(f'Distribution of rates in PAGA')
 
-def rates_diagonal(model, tpoint=1.0, sep='mixture'):
-    K = (model.get_matrix_K(eval=True, tpoint=tpoint, sep=sep))
+def rates_diagonal(model, K_type='const', tpoint=1.0, sep='mixture'):
+    K = (model.get_matrix_K(K_type=K_type, eval=True, tpoint=tpoint, sep=sep))
     diag = torch.diagonal(K, dim1=-2, dim2=-1).detach().cpu().numpy()
     anno = pd.read_csv(os.path.join(model.data_dir, 'annotations.csv'))
 
@@ -214,9 +216,7 @@ def rates_diagonal(model, tpoint=1.0, sep='mixture'):
     sns.heatmap(transition_K, annot=True, linewidths=.5, cmap='coolwarm', ax=axes)
     plt.title(f'Diagonal of transition rates (Proliferation & Apoptosis)')
 
-def clone_dynamic_K(model, index_clone=0, sep='mixture', suffix=''):
-    import gif
-    gif.options.matplotlib['dpi'] = 300
+def clone_dynamic_K(model, K_type='const', index_clone=0, sep='mixture', suffix=''):    
     anno = pd.read_csv(os.path.join(model.data_dir, 'annotations.csv'))
 
     x = torch.linspace(0, int(model.t_observed[-1].item()), int(model.t_observed[-1].item() * 2 + 1)).round(decimals=1).to(model.config.gpu)
@@ -224,7 +224,7 @@ def clone_dynamic_K(model, index_clone=0, sep='mixture', suffix=''):
 
     @gif.frame
     def plot(index_clone, tpoint, title):
-        K = (model.get_matrix_K(eval=True, tpoint=tpoint, sep=sep)).detach().cpu().numpy()
+        K = (model.get_matrix_K(K_type=K_type, eval=True, tpoint=tpoint, sep=sep)).detach().cpu().numpy()
 
         transition_K = pd.DataFrame(
             index=anno['populations'].values, 

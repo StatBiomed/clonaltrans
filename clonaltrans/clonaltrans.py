@@ -30,37 +30,41 @@ class CloneTranModel(nn.Module):
         self.config = config
         self.writer = writer
 
+        self.init_ode_func(N, config)
+        self.init_optimizer()
+        self.get_masks()
+
+    def init_ode_func(self, N, config):
         self.ode_func = ODEBlock(
             num_tpoints=N.shape[0],
             num_clones=N.shape[1],
             num_pops=N.shape[2],
             hidden_dim=config.hidden_dim, 
             activation=config.activation, 
-            K_type=config.K_type,
-            lam=config.lam
+            K_type=config.K_type if config.K_type != 'mixture_lr' else 'const',
         )
-        print (self.ode_func)
-        
-        self.init_optimizer()
-        self.get_masks()
+        print (f'{config.K_type}', '\n', self.ode_func)
+
+        if config.K_type == 'mixture_lr':
+            self.ode_func_dyna = ODEBlock(
+                num_tpoints=N.shape[0],
+                num_clones=N.shape[1],
+                num_pops=N.shape[2],
+                hidden_dim=config.hidden_dim, 
+                activation=config.activation, 
+                K_type='dynamic',
+            )
+            print (f'{config.K_type}', '\n', self.ode_func_dyna)
 
     def init_optimizer(self):
-        self.optimizer = torch.optim.Adam(
-            [
-                {'params': self.ode_func.parameters()}
-            ],
-            lr=self.config.learning_rate,
-            amsgrad=True
-        )
-        self.scheduler = torch.optim.lr_scheduler.MultiStepLR(
-            self.optimizer, 
-            milestones=self.config.lrs_ms, 
-            gamma=self.config.lrs_gamma
-        )
+        self.optimizer = torch.optim.Adam(self.ode_func.parameters(), lr=self.config.learning_rate, amsgrad=True)
+        self.scheduler = torch.optim.lr_scheduler.MultiStepLR(self.optimizer, milestones=self.config.lrs_ms, gamma=0.5)
+
+        if self.config.K_type == 'mixture_lr':
+            self.optimizer_dyna = torch.optim.Adam(self.ode_func_dyna.parameters(), lr=0.001, amsgrad=True)
+            self.scheduler_dyna = torch.optim.lr_scheduler.MultiStepLR(self.optimizer_dyna, milestones=[100 * i for i in range(1, 10)], gamma=0.5)
 
     def get_masks(self):
-        self.mask = (self.N.sum(0) != 0).to(torch.float32) # (c, p)
-
         self.used_L = self.L.clone()
         self.used_L.fill_diagonal_(1)
         self.used_L = self.used_L.unsqueeze(0)
@@ -74,27 +78,27 @@ class CloneTranModel(nn.Module):
                 K1[clone, pop, pop] += K2[clone, pop]
         return K1
 
-    def get_Kt(self, tpoint):
+    def get_Kt(self, tpoint, function):
         if tpoint == 0.0:
             tpoint += 0.01
 
         t_evaluation = torch.tensor([0.0, tpoint]).to(self.config.gpu)
         predictions = self.eval_model(t_evaluation)[1]
-        K1_t, K2_t = self.ode_func.get_K1_K2(predictions)
+        K1_t, K2_t = function.get_K1_K2(predictions)
         return K1_t, K2_t
     
-    def get_Kt_train(self):
+    def get_Kt_train(self, function):
         res_K1_t, res_K2_t = [], []
 
         for idx_time in range(self.input_N.shape[0]):
-            K1_t, K2_t = self.ode_func.get_K1_K2(self.input_N[idx_time])
+            K1_t, K2_t = function.get_K1_K2(self.input_N[idx_time])
             res_K1_t.append(K1_t)
             res_K2_t.append(K2_t)
 
         return torch.stack(res_K1_t), torch.stack(res_K2_t)
     
-    def get_matrix_K(self, eval=False, tpoint=1.0, sep='mixture'):
-        if self.config.K_type == 'const':
+    def get_matrix_K(self, K_type='const', eval=False, tpoint=1.0, sep='mixture'):
+        if K_type == 'const':
             K1 = torch.square(self.ode_func.K1) * self.ode_func.K1_mask
 
             if eval:
@@ -106,26 +110,27 @@ class CloneTranModel(nn.Module):
                     torch.tensor([0.]), \
                     torch.tensor([0.])
         
-        if self.config.K_type == 'dynamic':            
+        if K_type == 'dynamic':            
             if eval:
-                K1_t, K2_t = self.get_Kt(tpoint)
+                K1_t, K2_t = self.get_Kt(tpoint, self.ode_func)
                 matrix_K = self.combine_K1_K2(K1_t, K2_t)
                 return matrix_K / self.exponent
             
             else:
-                res_K1_t, res_K2_t = self.get_Kt_train() # (t, c, p, p) and (t, c, p)
+                res_K1_t, res_K2_t = self.get_Kt_train(self.ode_func) # (t, c, p, p) and (t, c, p)
                 return res_K1_t / self.exponent * self.oppo_L_nondia.unsqueeze(0), \
                     ((res_K2_t / self.exponent - 6) > 0).to(torch.float32) * (res_K2_t / self.exponent - 6), \
                     torch.tensor([0.]), \
                     torch.tensor([0.])
         
-        if self.config.K_type == 'mixture':
+        if K_type == 'mixture':
             K1 = torch.square(self.ode_func.K1) * self.ode_func.K1_mask
             K2 = self.ode_func.K2.squeeze()
 
             if eval:
+                function = self.ode_func_dyna if self.config.K_type == 'mixture_lr' else self.ode_func
                 assert sep in ['const', 'dynamic', 'mixture']
-                K1_t, K2_t = self.get_Kt(tpoint)
+                K1_t, K2_t = self.get_Kt(tpoint, function)
 
                 if sep == 'const':
                     return self.combine_K1_K2(K1, K2) / self.exponent
@@ -135,18 +140,17 @@ class CloneTranModel(nn.Module):
                     return self.combine_K1_K2(K1 + K1_t, K2 + K2_t) / self.exponent
             
             else:
+                function = self.ode_func_dyna if self.config.K_type == 'mixture_lr' else self.ode_func
                 K1, K2 = K1.unsqueeze(0), K2.unsqueeze(0)
-                res_K1_t, res_K2_t = self.get_Kt_train() # (t, c, p, p) and (t, c, p)
+                res_K1_t, res_K2_t = self.get_Kt_train(function) # (t, c, p, p) and (t, c, p)
 
                 return torch.concat([K1, res_K1_t]) / self.exponent * self.oppo_L_nondia.unsqueeze(0), \
                     ((torch.concat([K2, res_K2_t]) / self.exponent - 6) > 0).to(torch.float32) * (torch.concat([K2, res_K2_t]) / self.exponent - 6), \
-                    torch.concat([torch.flatten(self.ode_func.K1_encode), torch.flatten(self.ode_func.K1_decode)]), \
-                    torch.concat([torch.flatten(self.ode_func.K2_encode), torch.flatten(self.ode_func.K2_decode)])
-                    # res_K1_t / self.exponent * self.L.unsqueeze(0).unsqueeze(0), \
-                    # res_K2_t / self.exponent
+                    torch.concat([torch.flatten(function.K1_decode)]), \
+                    torch.concat([torch.flatten(function.K2_decode)])
 
     def compute_loss(self, y_pred, epoch, pbar):
-        pena_K1_nonL, pena_K2_ub, pena_K1_t, pena_K2_t = self.get_matrix_K()
+        pena_K1_nonL, pena_K2_ub, pena_K1_t, pena_K2_t = self.get_matrix_K(K_type=self.config.K_type if self.config.K_type != 'mixture_lr' else 'mixture')
 
         if self.config.include_var:
             var = torch.broadcast_to(torch.square(self.ode_func.std), self.input_N.shape)
@@ -165,8 +169,8 @@ class CloneTranModel(nn.Module):
         )
 
         descrip = pbar_tb_description(
-            ['L/NonL', 'L/K2Ub', 'L/Recon', 'L/K(t)L', 'Model/Lam'],
-            [l1.item() / self.config.alpha, l2.item() / self.config.alpha, loss_obs.item(), l3.item() / (self.config.beta + 1e-6), self.ode_func.lam.item()],
+            ['L/NonL', 'L/K2Ub', 'L/Recon', 'L/K(t)L'],
+            [l1.item() / self.config.alpha, l2.item() / self.config.alpha, SmoothL1(y_pred, self.input_N).item(), l3.item() / (self.config.beta + 1e-6)],
             epoch, self.writer
         )
         pbar.set_description(descrip)
@@ -185,6 +189,10 @@ class CloneTranModel(nn.Module):
         '''
 
         self.ode_func.train()
+        if self.config.K_type == 'mixture_lr':
+            self.ode_func_dyna.train()
+
+        frames = []
 
         pbar = tqdm(range(self.config.num_epochs))
         for epoch in pbar:
@@ -211,7 +219,7 @@ class CloneTranModel(nn.Module):
             y_pred = odeint_adjoint(self.ode_func, self.input_N[0], t_eval, method='dopri5')
         else:
             y_pred = odeint(self.ode_func, self.input_N[0], t_eval, method='dopri5')
-        
+
         if self.config.input_form in ['raw', 'shrink', 'root']:
             return y_pred
         

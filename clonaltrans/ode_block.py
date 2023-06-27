@@ -30,7 +30,6 @@ class ODEBlock(nn.Module):
         hidden_dim: int = 32, 
         activation: str = 'softplus', 
         K_type: str = 'const',
-        lam: float = 0.0
     ):
         '''
         ODE function dydt = K1 * y + K2 * y + K1.T * y 
@@ -42,7 +41,6 @@ class ODEBlock(nn.Module):
         self.nfe = 0
         self.K_type = K_type
         self.activation = activation_helper(activation)
-        self.lam = Parameter(torch.tensor([lam]), requires_grad=False)
 
         self.std = Parameter(torch.ones((1, num_clones, num_pops), dtype=torch.float32) * 1, requires_grad=True)
         self.K1_mask = Parameter(torch.triu(torch.ones((num_pops, num_pops)), diagonal=1).unsqueeze(0), requires_grad=False)
@@ -73,7 +71,9 @@ class ODEBlock(nn.Module):
         if basis == 'kaiming_uniform':
             nn.init.kaiming_uniform_(weight, a=math.sqrt(5))
         if basis == 'normal':
-            nn.init.normal_(weight, 0, 0.01)
+            nn.init.normal_(weight, 0, 0.05)
+        if basis == 'kaiming_normal':
+            nn.init.kaiming_normal_(weight)
 
         if bias is not None:
             fan_in, _ = nn.init._calculate_fan_in_and_fan_out(weight)

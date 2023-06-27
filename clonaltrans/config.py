@@ -14,7 +14,7 @@ class Configuration():
 
         self.hidden_dim = 32
 
-        # str, whether constant / dynamic / mixture K is used in model architecture, default const. 
+        # str, whether constant / dynamic / mixture / mixture_lr / K is used in model architecture, default const. 
         self.K_type = 'const'
 
         #* MODEL FITTING *
@@ -27,13 +27,10 @@ class Configuration():
 
         self.include_var = True
 
-        self.lam = 0.0
-
         #* OPTIMIZER & SCHEDULER
         self.learning_rate = 1e-3
         self.num_epochs = 1000
         self.lrs_ms = [200, 400, 600, 800]
-        self.lrs_gamma = 0.5
 
         # Adjoint sensitivity method is used to compute gradients of the loss function w.r.t. the parameters of the ODE solver
         # For applications that require solving complex trajectories, recommend using the adjoint method
