@@ -33,7 +33,7 @@ def get_topo_obs(
         print (f'Day 0 has been added. Input data shape: {array_ori.shape}')
 
     # generate background cells
-    if False:
+    if True:
         background = torch.mean(array_ori, axis=1).unsqueeze(1)
         array_total = torch.concatenate((array_ori, background), axis=1)
         print (f'Background reference cells generated (mean of all other clones). Input data shape: {array_total.shape}')
@@ -42,13 +42,45 @@ def get_topo_obs(
 
     return torch.tensor(paga.values, dtype=torch.float32, device=device), array_total.to(device)
 
+def get_array_total(ode_func, y0, t_simu, noise_level, scale=True, raw=False):
+    array_total = odeint(ode_func, y0, t_simu, rtol=1e-4, atol=1e-4, method='dopri5', options=dict(dtype=torch.float32))
+
+    if raw:
+        return array_total
+
+    if scale:
+        scale_factor = array_total.abs()
+        scale_factor[torch.rand_like(scale_factor) < 0.5] *= -1
+        array_total = array_total + scale_factor * torch.rand_like(array_total) * noise_level
+    else:
+        array_total = array_total + torch.rand_like(array_total) * noise_level
+
+    array_total[array_total < 1] = 0
+    return torch.round(array_total)
+
+def get_ode_func(K, config):
+    from .ode_block import ODEBlock
+    ode_func = ODEBlock(
+        num_tpoints=None,
+        num_clones=K.shape[0],
+        num_pops=K.shape[1],
+        hidden_dim=config.hidden_dim, 
+        activation=config.activation, 
+        K_type=config.K_type,
+    )
+
+    K1_mask = torch.triu(torch.ones((K.shape[1], K.shape[1])), diagonal=1).to(config.gpu)
+    ode_func.K1_mask = Parameter(K1_mask.unsqueeze(0), requires_grad=False)
+    return ode_func
+
 def simulation(
     K, # (num_clones, num_populations, num_populations)
-    L, # (num_populations, num_populations)
     config,
     t_simu=torch.tensor([0.0, 1.0, 2.0, 3.0]), 
     y0=None,
-    noise_level=1e-1
+    noise_level=1e-1,
+    scale=True,
+    raw=False
 ):
     '''
     Given rates, generate data at raw scale by adding noise. 
@@ -59,33 +91,12 @@ def simulation(
         4. (e.g., estimated from seed data)
     '''
 
-    # t_simu = (t_simu - t_simu[0]) / (t_simu[-1] - t_simu[0])
-    L = torch.broadcast_to(L.unsqueeze(0), (K.shape[0], K.shape[1], K.shape[1]))
-
-    from .ode_block import ODEBlock
-    ode_func = ODEBlock(
-        num_clones=K.shape[0],
-        num_pops=K.shape[1],
-        hidden_dim=config.hidden_dim, 
-        activation=config.activation, 
-        num_layers=config.num_layers
-    )
-
-    K1_mask = torch.triu(torch.ones((ode_func.K1.shape[1], ode_func.K1.shape[2])), diagonal=1).to(config.gpu)
-    ode_func.K1_mask = Parameter(torch.broadcast_to(K1_mask.unsqueeze(0), ode_func.K1.shape), requires_grad=False)
+    ode_func = get_ode_func(K, config)
 
     ode_func.K1 = Parameter(torch.sqrt(K * ode_func.K1_mask), requires_grad=True)
     ode_func.K2 = Parameter(torch.diagonal(K, dim1=-2, dim2=-1), requires_grad=True)
 
-    array_total = odeint(ode_func, y0, t_simu, rtol=1e-5, method='dopri5', options=dict(dtype=torch.float32))
-
-    scale_factor = array_total.abs()
-    scale_factor[torch.rand_like(scale_factor) < 0.5] *= -1
-    array_total = array_total + scale_factor * torch.rand_like(array_total) * noise_level
-
-    array_total[array_total < 1] = 0
-    array_total = torch.round(array_total)
-
+    array_total = get_array_total(ode_func, y0, t_simu, noise_level, scale, raw=raw)
     return array_total.to(config.gpu)
 
 def simulation_randK(
@@ -98,33 +109,17 @@ def simulation_randK(
 ):
     assert L.shape == dim_K[1:]
     assert y0.shape == dim_K[:-1]
-    L = torch.broadcast_to(L.unsqueeze(0), (dim_K[0], dim_K[1], dim_K[2]))
-
-    from .ode_block import ODEBlock
-    ode_func = ODEBlock(
-        num_clones=dim_K[0],
-        num_pops=dim_K[1],
-        hidden_dim=config.hidden_dim, 
-        activation=config.activation, 
-        num_layers=config.num_layers
-    )
 
     K = torch.normal(0, 0.25, size=dim_K).to(config.gpu)
-    ode_func.K1 = Parameter(torch.sqrt(torch.abs(K)) * L, requires_grad=True)
+    ode_func = get_ode_func(K, config)
+
+    ode_func.K1 = Parameter(torch.sqrt(torch.abs(K)) * L.unsqueeze(0), requires_grad=True)
     ode_func.K2 = Parameter(torch.diagonal(K, dim1=-2, dim2=-1), requires_grad=True)
 
-    K1_mask = torch.triu(torch.ones((ode_func.K1.shape[1], ode_func.K1.shape[2])), diagonal=1).to(config.gpu)
-    ode_func.K1_mask = Parameter(torch.broadcast_to(K1_mask.unsqueeze(0), ode_func.K1.shape), requires_grad=False)
-
-    array_total = odeint(ode_func, y0, t_simu, rtol=1e-5, method='dopri5', options=dict(dtype=torch.float32))
-    array_total = array_total + torch.rand_like(array_total) * noise_level
-    
-    array_total[array_total < 1] = 0
-    array_total = torch.round(array_total)
-
+    array_total = get_array_total(ode_func, y0, t_simu, noise_level, scale=False)
     return array_total.to(config.gpu), ode_func.K1, ode_func.K2
 
-def simulation_dynaK(
+def simulation_stepK(
     dim_K, # (num_clones, num_populations, num_populations)
     L, # (num_populations, num_populations)
     config,
@@ -134,66 +129,46 @@ def simulation_dynaK(
 ):
     assert L.shape == dim_K[1:]
     assert y0.shape == dim_K[:-1]
-    L = torch.broadcast_to(L.unsqueeze(0), (dim_K[0], dim_K[1], dim_K[2]))
 
-    from .ode_block import ODEBlock
-    ode_func = ODEBlock(
-        num_clones=dim_K[0],
-        num_pops=dim_K[1],
-        hidden_dim=config.hidden_dim, 
-        activation=config.activation, 
-        num_layers=config.num_layers
-    )
+    K = torch.normal(0, 0.25, size=dim_K).to(config.gpu)
+    ode_func = get_ode_func(K, config)
 
     # Proliferation
-    K = torch.normal(0, 0.25, size=dim_K).to(config.gpu)
     ode_func.K1 = Parameter(torch.zeros_like(K), requires_grad=True)
     ode_func.K2 = Parameter(torch.diagonal(torch.abs(K), dim1=-2, dim2=-1), requires_grad=True)
-
-    K1_mask = torch.triu(torch.ones((ode_func.K1.shape[1], ode_func.K1.shape[2])), diagonal=1).to(config.gpu)
-    ode_func.K1_mask = Parameter(torch.broadcast_to(K1_mask.unsqueeze(0), ode_func.K1.shape), requires_grad=False)
 
     array_proli = odeint(ode_func, y0, t_simu[[0, 1]], rtol=1e-5, method='dopri5', options=dict(dtype=torch.float32))
 
     # Differentiation
-    ode_func.K1 = Parameter(torch.sqrt(torch.abs(K)) * L, requires_grad=True)
+    ode_func.K1 = Parameter(torch.sqrt(torch.abs(K)) * L.unsqueeze(0), requires_grad=True)
     ode_func.K2 = Parameter(torch.diagonal(K, dim1=-2, dim2=-1), requires_grad=True)
 
     array_diffe = odeint(ode_func, array_proli[1], t_simu[[1, 2, 3]], rtol=1e-5, method='dopri5', options=dict(dtype=torch.float32))
     
+    # Concatenate
     array_total = torch.concat([array_proli, array_diffe[1:]])
     array_total[array_total < 1] = 0
     array_total = torch.round(array_total)
 
     return array_total.to(config.gpu), ode_func.K1, ode_func.K2
 
-def simulation_2lK(
-    encode,
-    decode,
+def simulation_dynaK(
+    K1_encode,
+    K1_decode,
+    K2_encode,
+    K2_decode,
     config,
     t_simu=torch.tensor([0.0, 1.0, 2.0, 3.0]), 
     y0=None,
-    noise_level=1e-2
+    noise_level=1e-1
 ):
-    from .ode_block import ODEBlock
-    ode_func = ODEBlock(
-        num_clones=encode.shape[0],
-        num_pops=encode.shape[1],
-        hidden_dim=config.hidden_dim, 
-        activation=config.activation, 
-        num_layers=config.num_layers
-    )
+    K = torch.normal(0, 0.25, size=(K2_encode[0], K2_encode[1], K2_encode[1])).to(config.gpu)
+    ode_func = get_ode_func(K, config)
 
-    ode_func.encode = Parameter(encode + torch.normal(0, 0.1, size=encode.shape).to(config.gpu), requires_grad=True)
-    ode_func.decode = Parameter(decode + torch.normal(0, 0.1, size=decode.shape).to(config.gpu), requires_grad=True)
+    ode_func.k1_enw = Parameter(K1_encode + torch.normal(0, 0.01, size=K1_encode.shape).to(config.gpu), requires_grad=True)
+    ode_func.k1_dew = Parameter(K1_decode + torch.normal(0, 0.01, size=K1_decode.shape).to(config.gpu), requires_grad=True)
+    ode_func.k2_enw = Parameter(K2_encode + torch.normal(0, 0.01, size=K2_encode.shape).to(config.gpu), requires_grad=True)
+    ode_func.k2_dew = Parameter(K2_decode + torch.normal(0, 0.01, size=K2_decode.shape).to(config.gpu), requires_grad=True)
 
-    array_total = odeint(ode_func, y0, t_simu, rtol=1e-5, method='dopri5', options=dict(dtype=torch.float32))
-
-    scale_factor = array_total.abs()
-    scale_factor[torch.rand_like(scale_factor) < 0.5] *= -1
-    array_total = array_total + scale_factor * torch.rand_like(array_total) * noise_level
-
-    array_total[array_total < 1] = 0
-    array_total = torch.round(array_total)
-
+    array_total = get_array_total(ode_func, y0, t_simu, noise_level)
     return array_total.to(config.gpu)

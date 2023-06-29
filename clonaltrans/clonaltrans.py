@@ -2,14 +2,19 @@ import torch
 from torch import nn
 from torchdiffeq import odeint_adjoint, odeint
 from tqdm import tqdm
+import matplotlib.pyplot as plt
 
 from .ode_block import ODEBlock
 from .utils import timeit, pbar_tb_description, input_data_form, tb_scalar
+from .pl import grid_visual_interpolate
 
 MSE = nn.MSELoss(reduction='mean')
 SmoothL1 = nn.SmoothL1Loss(reduction='mean', beta=1.0)
 GaussianNLL = nn.GaussianNLLLoss(reduction='mean')
 MAE = nn.L1Loss(reduction='mean')
+
+import gif
+gif.options.matplotlib['dpi'] = 300
 
 class CloneTranModel(nn.Module):
     def __init__(
@@ -129,15 +134,16 @@ class CloneTranModel(nn.Module):
 
             if eval:
                 function = self.ode_func_dyna if self.config.K_type == 'mixture_lr' else self.ode_func
+                fraction = 2 if self.config.K_type == 'mixture_lr' else 1
                 assert sep in ['const', 'dynamic', 'mixture']
                 K1_t, K2_t = self.get_Kt(tpoint, function)
 
                 if sep == 'const':
-                    return self.combine_K1_K2(K1, K2) / self.exponent
+                    return self.combine_K1_K2(K1, K2) / self.exponent / fraction
                 if sep == 'dynamic':
-                    return self.combine_K1_K2(K1_t, K2_t) / self.exponent
+                    return self.combine_K1_K2(K1_t, K2_t) / self.exponent / fraction
                 if sep == 'mixture':
-                    return self.combine_K1_K2(K1 + K1_t, K2 + K2_t) / self.exponent
+                    return self.combine_K1_K2(K1 + K1_t, K2 + K2_t) / self.exponent / fraction
             
             else:
                 function = self.ode_func_dyna if self.config.K_type == 'mixture_lr' else self.ode_func
@@ -192,8 +198,6 @@ class CloneTranModel(nn.Module):
         if self.config.K_type == 'mixture_lr':
             self.ode_func_dyna.train()
 
-        frames = []
-
         pbar = tqdm(range(self.config.num_epochs))
         for epoch in pbar:
             self.optimizer.zero_grad()
@@ -204,11 +208,27 @@ class CloneTranModel(nn.Module):
             else:
                 y_pred = odeint(self.ode_func, self.input_N[0], t_observed, 
                     method='dopri5', rtol=1e-4, atol=1e-4, options=dict(dtype=torch.float32))
+                # y_pred = odeint(self.ode_func, self.input_N[0], t_observed, 
+                #     method='rk4', options=dict(step_size=0.1))
+
+            if self.config.K_type == 'mixture_lr':
+                self.optimizer_dyna.zero_grad()
+
+                y_pred_dyna = odeint(self.ode_func_dyna, self.input_N[0], t_observed, 
+                    method='dopri5', rtol=1e-4, atol=1e-4, options=dict(dtype=torch.float32))
+                # y_pred_dyna = odeint(self.ode_func_dyna, self.input_N[0], t_observed, 
+                #     method='rk4', options=dict(step_size=0.1))
+
+                y_pred = (y_pred + y_pred_dyna) / 2
 
             loss = self.compute_loss(y_pred, epoch, pbar)
 
             self.optimizer.step()
             self.scheduler.step()
+
+            if self.config.K_type == 'mixture_lr':
+                self.optimizer_dyna.step()
+                self.scheduler_dyna.step()
 
     @torch.no_grad()
     def eval_model(self, t_eval, log_output=False):
@@ -220,6 +240,11 @@ class CloneTranModel(nn.Module):
         else:
             y_pred = odeint(self.ode_func, self.input_N[0], t_eval, method='dopri5')
 
+        if self.config.K_type == 'mixture_lr':
+            self.ode_func_dyna.eval()
+            y_pred_dyna = odeint(self.ode_func_dyna, self.input_N[0], t_eval, method='dopri5')
+            y_pred = (y_pred + y_pred_dyna) / 2
+        
         if self.config.input_form in ['raw', 'shrink', 'root']:
             return y_pred
         
@@ -227,3 +252,20 @@ class CloneTranModel(nn.Module):
             return y_pred
         
         else: return (torch.exp(y_pred) - 1.0)
+
+    @gif.frame
+    def streamline_per_epoch(self, data_dir, t_observed, epoch, loss):
+        from .utils import TempModel
+        temp = TempModel(data_dir=data_dir)
+        t_pred = torch.linspace(t_observed[0], t_observed[-1], 100).to(self.config.gpu)
+        predictions = self.eval_model(t_pred)
+
+        grid_visual_interpolate(
+            temp,
+            [self.N, torch.pow(predictions, 1 / self.exponent), None],
+            ['Observations', 'Predictions', None],
+            [t_observed, t_pred, None],
+            variance=False, 
+            save=False
+        )
+        plt.title(f'Epoch {epoch}, Loss {loss:.3f}')

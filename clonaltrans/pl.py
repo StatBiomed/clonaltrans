@@ -24,7 +24,7 @@ def get_subplot_dimensions(
 
     fig_width = fig_width_per_col * cols
     fig_height = fig_height_per_row * rows
-    return rows, cols, (fig_width, fig_height)
+    return rows, cols, (fig_width + 1, fig_height + 2)
 
 def mse_corr(
     observations, 
@@ -48,7 +48,7 @@ def mse_corr(
         y = predictions[n].detach().cpu().numpy().flatten()
         spear = spearmanr(x, y)[0]
         
-        ax_loc = axes[n % cols][n // cols] if rows > 1 else axes[n]
+        ax_loc = axes[n // cols][n % cols] if rows > 1 else axes[n]
         sns.scatterplot(
             x=x, y=y, s=size, ax=ax_loc,
             hue=hue, palette=palette
@@ -241,3 +241,26 @@ def clone_dynamic_K(model, K_type='const', index_clone=0, sep='mixture', suffix=
 
     frames = [plot(index_clone, x[i], title) for i in range(len(x))]
     gif.save(frames, f'K_dynamics_clone_{title}{suffix}.gif', duration=0.5, unit='seconds')
+
+def const_and_dyna(K_const, K_dyna, save=False):
+    assert K_const.shape == K_dyna.shape
+    from .pl import get_subplot_dimensions
+    rows, cols, figsize = get_subplot_dimensions(K_const.shape[0], max_cols=3, fig_height_per_row=2)
+    fig, axes = plt.subplots(rows, cols, figsize=figsize)
+
+    for n in range(K_const.shape[0]):
+        x = K_const[n].flatten()
+        y = K_dyna[n].flatten()
+        
+        ax_loc = axes[n // cols][n % cols] if rows > 1 else axes[n]
+        sns.scatterplot(x=x, y=y, s=25, ax=ax_loc, c='lightcoral')
+        ax_loc.plot([x.min(), x.max()], [x.min(), x.max()], linestyle="--", color="grey")
+
+        ax_loc.set_title(f'Clone {n}', fontsize=10)
+        ax_loc.set_ylabel(f'K_dynamic')
+
+        if n > 2:
+            ax_loc.set_xlabel(f'K_const')
+
+    if save is not False:
+        plt.savefig(f'./figs/{save}.png', dpi=300, bbox_inches='tight')
