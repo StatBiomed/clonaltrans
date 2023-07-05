@@ -3,13 +3,8 @@ import numpy as np
 import time
 import inspect
 from scipy import interpolate
-from torchdiffeq import odeint
 from torch import nn
-from scipy.optimize import minimize_scalar
-from torch.nn.parameter import Parameter
 from torch.utils.data import Dataset
-
-GaussianNLL = nn.GaussianNLLLoss(reduction='mean')
 
 class Clonal_Info(Dataset):
     def __init__(
@@ -91,8 +86,9 @@ def timeit(func, epoch, writer):
     return wrapper
 
 def tb_scalar(var_names, var_lists, iter, writer):
-    for idx, variable in enumerate(var_lists):
-        writer.add_scalar(var_names[idx], variable, iter)
+    if writer is not None:
+        for idx, variable in enumerate(var_lists):
+            writer.add_scalar(var_names[idx], variable, iter)
 
 def pbar_descrip(var_names, var_lists):
     res = ''
@@ -105,7 +101,9 @@ def pbar_tb_description(var_names, var_lists, iter, writer):
     res = ''
     for idx, variable in enumerate(var_lists):
         res += f'{var_names[idx]} {variable:.3f}, '
-        writer.add_scalar(var_names[idx], variable, iter)
+
+        if writer is not None:
+            writer.add_scalar(var_names[idx], variable, iter)
     
     return res
 
@@ -126,6 +124,7 @@ def val_thres(K, thres=6.):
     print (f'# of entries where transition rates > {thres}: {remain.shape[1]}')
     print (remain, '\n')
 
+#TODO validation function for each mode, const, dynamic, mixture
 def validate_K(model):
     K = (model.get_matrix_K(eval=True)).detach().cpu().numpy()
 
@@ -150,10 +149,3 @@ def var_interp_1d(variance, t_observed, kind='linear'):
     
     vars_inter[vars_inter < 0] = 0
     return vars_inter
-
-class TempModel():
-    def __init__(self, data_dir) -> None:
-        self.data_dir = data_dir
-
-def bootstrap():
-    pass

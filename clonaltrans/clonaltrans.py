@@ -2,19 +2,14 @@ import torch
 from torch import nn
 from torchdiffeq import odeint_adjoint, odeint
 from tqdm import tqdm
-import matplotlib.pyplot as plt
 
 from .ode_block import ODEBlock
-from .utils import timeit, pbar_tb_description, input_data_form, tb_scalar
-from .pl import grid_visual_interpolate
+from .utils import pbar_tb_description, input_data_form, tb_scalar
 
 MSE = nn.MSELoss(reduction='mean')
 SmoothL1 = nn.SmoothL1Loss(reduction='mean', beta=1.0)
 GaussianNLL = nn.GaussianNLLLoss(reduction='mean')
 MAE = nn.L1Loss(reduction='mean')
-
-import gif
-gif.options.matplotlib['dpi'] = 300
 
 class CloneTranModel(nn.Module):
     def __init__(
@@ -22,44 +17,45 @@ class CloneTranModel(nn.Module):
         N, # (num_timpoints, num_clones, num_populations)
         L, # (num_populations, num_populations)
         config,
-        writer
+        writer: any = None,
+        sample_N: any = None
     ):
         super(CloneTranModel, self).__init__()
         self.N = N
         self.L = L
         self.exponent = config.exponent
-
         self.input_N = input_data_form(N, config.input_form, exponent=self.exponent)
-        print (f'\nData format: {config.input_form}. Exponent: {self.exponent}. Mean of input data: {self.input_N.mean().cpu():.3f}')
 
         self.config = config
         self.writer = writer
+        self.model_id = 0
 
-        self.init_ode_func(N, config)
+        self.init_ode_func()
         self.init_optimizer()
         self.get_masks()
 
-    def init_ode_func(self, N, config):
-        self.ode_func = ODEBlock(
-            num_tpoints=N.shape[0],
-            num_clones=N.shape[1],
-            num_pops=N.shape[2],
-            hidden_dim=config.hidden_dim, 
-            activation=config.activation, 
-            K_type=config.K_type if config.K_type != 'mixture_lr' else 'const',
-        )
-        print (f'{config.K_type}', '\n', self.ode_func)
+        if sample_N is None:
+            print (f'\nData format: {config.input_form}. Exponent: {self.exponent}. Mean of input data: {self.input_N.mean().cpu():.3f}')
+            print (f'{config.K_type}', '\n', self.ode_func)
+            print (f'{config.K_type}', '\n', self.ode_func_dyna) if config.K_type == 'mixture_lr' else print ('')
+            self.sample_N = torch.ones(N.shape)                
 
-        if config.K_type == 'mixture_lr':
-            self.ode_func_dyna = ODEBlock(
-                num_tpoints=N.shape[0],
-                num_clones=N.shape[1],
-                num_pops=N.shape[2],
-                hidden_dim=config.hidden_dim, 
-                activation=config.activation, 
-                K_type='dynamic',
-            )
-            print (f'{config.K_type}', '\n', self.ode_func_dyna)
+        else:
+            self.sample_N = sample_N
+
+    def func(self, K_type):
+        return ODEBlock(
+            num_tpoints=self.N.shape[0],
+            num_clones=self.N.shape[1],
+            num_pops=self.N.shape[2],
+            hidden_dim=self.config.hidden_dim, 
+            activation=self.config.activation, 
+            K_type=K_type
+        )
+
+    def init_ode_func(self):
+        self.ode_func = self.func(self.config.K_type if self.config.K_type != 'mixture_lr' else 'const')
+        self.ode_func_dyna = self.func('dynamic')
 
     def init_optimizer(self):
         self.optimizer = torch.optim.Adam(self.ode_func.parameters(), lr=self.config.learning_rate, amsgrad=True)
@@ -160,9 +156,9 @@ class CloneTranModel(nn.Module):
 
         if self.config.include_var:
             var = torch.broadcast_to(torch.square(self.ode_func.std), self.input_N.shape)
-            loss_obs = GaussianNLL(self.input_N, y_pred, var)
+            loss_obs = GaussianNLL(self.input_N * self.sample_N, y_pred * self.sample_N, var)
         else:
-            loss_obs = SmoothL1(y_pred, self.input_N)
+            loss_obs = SmoothL1(y_pred * self.sample_N, self.input_N * self.sample_N)
 
         l1 = self.config.alpha * torch.sum(pena_K1_nonL)   
         l2 = self.config.alpha * torch.sum(pena_K2_ub)
@@ -175,8 +171,8 @@ class CloneTranModel(nn.Module):
         )
 
         descrip = pbar_tb_description(
-            ['L/NonL', 'L/K2Ub', 'L/Recon', 'L/K(t)L'],
-            [l1.item() / self.config.alpha, l2.item() / self.config.alpha, SmoothL1(y_pred, self.input_N).item(), l3.item() / (self.config.beta + 1e-6)],
+            ['ID', 'L/NonL', 'L/K2Ub', 'L/Recon', 'L/K(t)L'],
+            [self.model_id, l1.item() / self.config.alpha, l2.item() / self.config.alpha, SmoothL1(y_pred * self.sample_N, self.input_N * self.sample_N).item(), l3.item() / (self.config.beta + 1e-6)],
             epoch, self.writer
         )
         pbar.set_description(descrip)
@@ -195,8 +191,7 @@ class CloneTranModel(nn.Module):
         '''
 
         self.ode_func.train()
-        if self.config.K_type == 'mixture_lr':
-            self.ode_func_dyna.train()
+        self.ode_func_dyna.train()
 
         pbar = tqdm(range(self.config.num_epochs))
         for epoch in pbar:
@@ -252,20 +247,3 @@ class CloneTranModel(nn.Module):
             return y_pred
         
         else: return (torch.exp(y_pred) - 1.0)
-
-    @gif.frame
-    def streamline_per_epoch(self, data_dir, t_observed, epoch, loss):
-        from .utils import TempModel
-        temp = TempModel(data_dir=data_dir)
-        t_pred = torch.linspace(t_observed[0], t_observed[-1], 100).to(self.config.gpu)
-        predictions = self.eval_model(t_pred)
-
-        grid_visual_interpolate(
-            temp,
-            [self.N, torch.pow(predictions, 1 / self.exponent), None],
-            ['Observations', 'Predictions', None],
-            [t_observed, t_pred, None],
-            variance=False, 
-            save=False
-        )
-        plt.title(f'Epoch {epoch}, Loss {loss:.3f}')

@@ -249,3 +249,19 @@ def get_hessian(model, t_observed):
     print(functorch.hessian(loss)(tuple(model.parameters())))
 
     return hessian
+
+def streamline_per_epoch(self, data_dir, t_observed, epoch, loss):
+    from .utils import TempModel
+    temp = TempModel(data_dir=data_dir)
+    t_pred = torch.linspace(t_observed[0], t_observed[-1], 100).to(self.config.gpu)
+    predictions = self.eval_model(t_pred)
+
+    grid_visual_interpolate(
+        temp,
+        [self.N, torch.pow(predictions, 1 / self.exponent), None],
+        ['Observations', 'Predictions', None],
+        [t_observed, t_pred, None],
+        variance=False, 
+        save=False
+    )
+    plt.title(f'Epoch {epoch}, Loss {loss:.3f}')
