@@ -56,7 +56,7 @@ class Bootstrapping(nn.Module):
                     if pos in counter.keys():
                         sample_N[tp + 1, :, pop] = counter[pos]
 
-            buffer.append([sample_N, gpu_id % 4, self.epoch * 8  + gpu_id + 78])
+            buffer.append([sample_N, gpu_id % 4, self.epoch * self.num_gpus + gpu_id])
         
         return buffer
 
@@ -88,6 +88,6 @@ class Bootstrapping(nn.Module):
         #TODO save only trainable & reasonable reconstruction loss models
         if model.trainable:
             # model.input_N = model.input_N.to('cpu')
-            torch.save(model.to('cpu'), f'./temp/{model.model_id}.pt')
+            torch.save(model.to('cpu'), f'./tempnorm/{model.model_id}.pt')
 
         return None

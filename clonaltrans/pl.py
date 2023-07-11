@@ -9,6 +9,7 @@ import torch
 import os
 import imageio
 from matplotlib.lines import Line2D
+from tqdm import tqdm
 
 MSE = nn.MSELoss(reduction='mean')
 SmoothL1 = nn.SmoothL1Loss(reduction='mean', beta=1.0)
@@ -85,10 +86,10 @@ def plot_gvi(data, axes, row, col, t_axis, label, color, size_samples):
                     t_axis[t_sample], 
                     data[t_sample, row, col], 
                     label=label, 
-                    color=color,
-                    marker=markers[int(size_samples[t_sample])],
+                    color=color if size_samples[t_sample] != 0 else '#A9A9A9',
+                    marker=markers[int(size_samples[t_sample]) if size_samples[t_sample] != 0 else 1],
                     linestyle='',
-                    markersize=10
+                    markersize=7
                 )
 
 def data_convert(target):
@@ -96,15 +97,14 @@ def data_convert(target):
         target[1].detach().cpu().numpy() if target[1] != None else None, \
         target[2].detach().cpu().numpy() if target[2] != None else None
 
-# TODO convert variance estimation from root scale to raw scale
 def grid_visual_interpolate(
     model,
     raw_data: bool = True,
-    variance: bool = False,
     save: bool = False
 ):
     fig, axes = plt.subplots(model.N.shape[1], model.N.shape[2], figsize=(40, 15), sharex=True)
 
+    model = model.to('cpu')
     model.input_N = model.input_N.to('cpu')
     t_smoothed = torch.linspace(model.t_observed[0], model.t_observed[-1], 100).to('cpu')
     y_pred = model.eval_model(t_smoothed)
@@ -120,27 +120,11 @@ def grid_visual_interpolate(
     data_names = ['Observations', 'Predictions', None]
 
     anno = pd.read_csv(os.path.join(model.data_dir, 'annotations.csv'))
-    sample_N = model.sample_N.cpu().numpy()
-
-    if variance is not False and raw_data is False:
-        lb = pred - np.sqrt(variance)
-        ub = pred + np.sqrt(variance)
-
-        lb[lb < 0] = 0
-        ub[ub < 0] = 0
+    try: sample_N = model.sample_N.cpu().numpy() 
+    except: sample_N = np.ones(model.N.shape)
 
     for row in range(model.N.shape[1]):
         for col in range(model.N.shape[2]):
-            if variance is not False:
-                axes[row][col].fill_between(
-                    t_pred,
-                    lb[:, row, col],
-                    ub[:, row, col],
-                    label='1 std error',
-                    color='lightskyblue',
-                    alpha=0.5
-                )
-
             size_samples = sample_N[:, row, col]
             plot_gvi(pred2, axes, row, col, t_pred2, data_names[2], 'skyblue', size_samples)
             plot_gvi(pred, axes, row, col, t_pred, data_names[1], 'lightcoral', size_samples)
@@ -163,10 +147,14 @@ def grid_visual_interpolate(
         legend_elements.append(
             Line2D(
                 [0], [0], marker=markers[sample_id], color='#2C6975', 
-                markersize=10, linestyle=''
+                markersize=7, linestyle=''
             )
         )
         labels.append(f'Sampled {sample_id} time(s)' if int(np.max(sample_N)) > 1 else 'Observations')
+    
+    if int(np.min(sample_N)) == 0:
+        legend_elements.insert(1, Line2D([0], [0], marker=markers[1], linestyle='', color='#A9A9A9', markersize=7))
+        labels.insert(1, 'Sampled 0 time(s)')
 
     fig.legend(legend_elements, labels, loc='right', fontsize='x-large', bbox_to_anchor=(0.975, 0.5))
 
@@ -187,8 +175,8 @@ def clone_specific_K(model, K_type='const', index_clone=0, tpoint=1.0, sep='mixt
     df = transti_K(model, K[index_clone])
 
     fig, axes = plt.subplots(figsize=(12, 6))
-    sns.heatmap(df, annot=True, linewidths=.5, cmap='coolwarm', ax=axes, vmin=-2, vmax=4)
-    plt.title(f'Transition Matrix for Clone {index_clone} Day {np.round(tpoint, 1)}')
+    sns.heatmap(df, annot=True, linewidths=.5, cmap='coolwarm', ax=axes, vmin=-2, vmax=3)
+    plt.title(f'Transition Matrix for Clone {index_clone} Day {np.round(tpoint.cpu(), 1) if type(tpoint) == torch.Tensor else np.round(tpoint, 1)}')
 
     if save:
         plt.savefig(f'./figs/temp_{tpoint.round(decimals=1)}.png', dpi=300, bbox_inches='tight', transparent=False, facecolor='white')
@@ -205,27 +193,44 @@ def diff_K_between_clones(model, K_type='const', index_pop=0, tpoint=1.0, direct
         df = transti_K(model, K[:, :, index_pop], anno['clones'].values[:K.shape[0]], anno['populations'].values + ' -> ' + pop_name).T
 
     fig, axes = plt.subplots(figsize=(12, 6))
-    sns.heatmap(df, annot=True, linewidths=.5, cmap='coolwarm', ax=axes, vmin=-2, vmax=4)
+    sns.heatmap(df, annot=True, linewidths=.5, cmap='coolwarm', ax=axes, vmin=-2, vmax=3)
     plt.xticks(rotation=0)
     plt.title(f'Difference in transition rates between clones for {pop_name} ({direction})')
 
-def rates_notin_paga(model, K_type='const', tpoint=1.0, sep='mixture'):
-    K = model.get_matrix_K(K_type=K_type, eval=True, tpoint=tpoint, sep=sep).detach().cpu().numpy()
-    oppo = K * model.oppo_L.cpu().numpy()
-    nonzeros = oppo[np.where(oppo != 0)]
+def rates_notin_paga(model, K_type='const', sep='mixture', value=False, save=False):
+    K_total = []
 
-    print ('All other entries not in topology graph L should be as close to 0 as possible, \nideally strictly equals to 0.')
-    print (f'# of entries: {np.sum(model.oppo_L.cpu().numpy() * K.shape[0])}, # of zeros: {np.sum(model.oppo_L.cpu().numpy() * K.shape[0]) - len(nonzeros)}, Details of nonzeros: ')
-    print (f'Max: {np.max(nonzeros):.6f}, Median: {np.median(nonzeros):.6f}, Min: {np.min(nonzeros):.6f}')
+    x = torch.linspace(0, int(model.t_observed[-1].item()), int(model.t_observed[-1].item() * 2 + 1)).to(model.config.gpu)
+    for i in range(len(x)):
+        K = model.get_matrix_K(K_type=K_type, eval=True, tpoint=x[i].round(decimals=1), sep=sep).detach().cpu().numpy()
+        K = K[np.where(model.oppo_L.cpu().numpy())]
+        K_total.append(K[np.where(K != 0)])
 
-    sns.histplot(nonzeros, bins=10)
-    plt.title(f'Distribution of non-zero rates not in PAGA')
+    sns.histplot((np.stack(K_total).flatten()), bins=50)
+    plt.title(f'Rates not in PAGA that are non-zero')
 
-def rates_in_paga(model, K_type='const', tpoint=1.0, sep='mixture'):
-    K = model.get_matrix_K(K_type=K_type, eval=True, tpoint=tpoint, sep=sep).detach().cpu().numpy()
-    used_K = K[np.where(np.broadcast_to(model.used_L.cpu().numpy(), K.shape))]
-    sns.histplot(used_K, bins=30)
-    plt.title(f'Distribution of rates in PAGA')
+    if save:
+        plt.savefig(f'./figs/{save}.png', dpi=300, bbox_inches='tight')
+
+    if value:
+        return np.stack(K_total)
+
+def rates_in_paga(model, K_type='const', sep='mixture', value=False, save=False):
+    K_total = []
+
+    x = torch.linspace(0, int(model.t_observed[-1].item()), int(model.t_observed[-1].item() * 2 + 1)).to(model.config.gpu)
+    for i in range(len(x)):
+        K = model.get_matrix_K(K_type=K_type, eval=True, tpoint=x[i].round(decimals=1), sep=sep).detach().cpu().numpy()
+        K_total.append(K[np.where(np.broadcast_to(model.used_L.cpu().numpy(), K.shape))])
+    
+    sns.histplot(np.stack(K_total).flatten(), bins=50)
+    plt.title(f'Rates in PAGA')
+
+    if save:
+        plt.savefig(f'./figs/{save}.png', dpi=300, bbox_inches='tight')
+
+    if value:
+        return np.stack(K_total)
 
 def rates_diagonal(model, K_type='const', tpoint=1.0, sep='mixture'):
     K = model.get_matrix_K(K_type=K_type, eval=True, tpoint=tpoint, sep=sep)
@@ -235,7 +240,7 @@ def rates_diagonal(model, K_type='const', tpoint=1.0, sep='mixture'):
     df = transti_K(model, diag, anno['clones'].values[:K.shape[0]]).T
 
     fig, axes = plt.subplots(figsize=(12, 6))
-    sns.heatmap(df, annot=True, linewidths=.5, cmap='coolwarm', ax=axes, vmin=-2, vmax=4)
+    sns.heatmap(df, annot=True, linewidths=.5, cmap='coolwarm', ax=axes, vmin=-2, vmax=3)
     plt.title(f'Diagonal of transition rates (Proliferation & Apoptosis)')
 
 def clone_dynamic_K(model, K_type='const', index_clone=0, sep='mixture', suffix=''): 
@@ -277,18 +282,17 @@ def const_and_dyna(K_const, K_dyna, save=False):
         plt.savefig(f'./figs/{save}.png', dpi=300, bbox_inches='tight')
 
 def parameter_range(model_list, K_type='const', tpoint=1.0, sep='mixture', ref_model=None):
-    from tqdm import tqdm
     pbar = tqdm(model_list)
 
     total_K = []
     for model in pbar:
-        model.input_N = model.input_N.to(0)
-        tpoint = torch.tensor([tpoint]).to(0)
+        model.input_N = model.input_N.to('cpu')
+        tpoint = torch.tensor([tpoint]).to('cpu')
         total_K.append(model.get_matrix_K(K_type=K_type, eval=True, tpoint=tpoint, sep=sep).detach().cpu().numpy())
 
     ref_K = ref_model.get_matrix_K(K_type=K_type, eval=True, tpoint=tpoint, sep=sep).detach().cpu().numpy()
 
-    return np.stack(total_K), ref_K# (num_bootstraps, clones, pops, pops)
+    return np.stack(total_K), ref_K # (num_bootstraps, clones, pops, pops)
 
 def parameter_ci(
     total_K, 
@@ -299,7 +303,6 @@ def parameter_ci(
     ref_K: any = None,
     save: bool = False,
 ):
-    # total_K = parameter_range(model_list, K_type, tpoint, sep)
     anno = pd.read_csv(os.path.join(data_dir, 'annotations.csv'))
     
     sampled_ks = total_K[:, index_clone, pop_1, pop_2]
@@ -311,8 +314,8 @@ def parameter_ci(
     plt.axvline(ref_K[index_clone, pop_1, pop_2], linestyle='--', color='lightcoral')
     plt.axvline(lb, linestyle='--', color='#069AF3')
     plt.axvline(ub, linestyle='--', color='#069AF3')
-    plt.title(f'Rates distribution of Clone {index_clone}', fontsize=12)
-    plt.xlabel('From {} to {}'.format(anno['populations'].values[pop_1], anno['populations'].values[pop_2]), fontsize=12)
+    plt.title(f'Rate distributions of Clone {index_clone}', fontsize=10)
+    plt.xlabel('From {} to {}'.format(anno['populations'].values[pop_1], anno['populations'].values[pop_2]), fontsize=10)
 
     #* (Original) (Bootstrapping {len(model_list)})
     legend_elements = [
@@ -320,8 +323,80 @@ def parameter_ci(
         Line2D([0], [0], linestyle='--', color='#069AF3', lw=2), 
     ]
     labels = ['Fitted', f'95% CI']
-    plt.legend(legend_elements, labels, loc='upper right', fontsize=12)
+    plt.legend(legend_elements, labels, loc='best', fontsize=10)
 
     if save:
         plt.savefig(f'./figs/{save}.png', dpi=300, bbox_inches='tight', transparent=False, facecolor='white')
         plt.close()
+
+def trajectory_range(model_list, model_ref, raw_data=True):
+    model_list.append(model_ref)
+    pbar = tqdm(enumerate(model_list))
+    total_pred = []
+
+    for idx, model in pbar:
+        model = model.to('cpu')
+        model.input_N = model.input_N.to('cpu')
+        t_smoothed = torch.linspace(model.t_observed[0], model.t_observed[-1], 100).to('cpu')
+        y_pred = model.eval_model(t_smoothed)
+
+        #TODO fit for different data transformation techniques
+        if raw_data:
+            data_values = [model.N, torch.pow(y_pred, 4), None]
+        else:
+            data_values = [model.input_N, y_pred, None]
+
+        obs, pred, _ = data_convert(data_values)
+        total_pred.append(pred)
+    
+    return np.stack(total_pred), obs, t_smoothed
+
+def trajectory_ci(
+    total_pred,
+    obs,
+    t_smoothed,
+    model_ref,
+    boundary,
+    save: bool = False
+):
+    fig, axes = plt.subplots(model_ref.N.shape[1], model_ref.N.shape[2], figsize=(40, 15), sharex=True)
+    lb, ub = np.percentile(total_pred, boundary[0], axis=0), np.percentile(total_pred, boundary[1], axis=0)
+
+    t_obs, t_pred, t_median = data_convert([model_ref.t_observed, t_smoothed, t_smoothed])
+    data_names = ['Observations', 'Predictions', 'Q50']
+    anno = pd.read_csv(os.path.join(model_ref.data_dir, 'annotations.csv'))
+
+    for row in range(model_ref.N.shape[1]):
+        for col in range(model_ref.N.shape[2]):
+            axes[row][col].fill_between(
+                t_pred,
+                lb[:, row, col],
+                ub[:, row, col],
+                label='1 std error',
+                color='lightskyblue',
+                alpha=0.5
+            )
+
+            plot_gvi(np.percentile(total_pred, 50, axis=0), axes, row, col, t_median, data_names[2], '#929591', np.array([1., 1., 1., 1.]))
+            plot_gvi(total_pred[-1], axes, row, col, t_pred, data_names[1], 'lightcoral', np.array([1., 1., 1., 1.]))
+            plot_gvi(obs, axes, row, col, t_obs, data_names[0], '#2C6975', np.array([1., 1., 1., 1.]))
+    
+            axes[0][col].set_title(anno['populations'][col])
+            axes[row][0].set_ylabel(anno['clones'][row])
+            axes[row][col].set_xticks(t_obs, labels=t_obs.astype(int), rotation=45)
+            axes[row][col].ticklabel_format(axis='y', style='sci', scilimits=(0, 4))
+
+    fig.subplots_adjust(hspace=0.5)
+    fig.subplots_adjust(wspace=0.5)
+
+    legend_elements = [
+        Line2D([0], [0], marker='o', color='#2C6975', markersize=7, linestyle=''), 
+        Line2D([0], [0], color='lightcoral', lw=2), 
+        Line2D([0], [0], color='lightskyblue', lw=2), 
+        Line2D([0], [0], color='#929591', lw=2)
+    ]
+    labels = ['Observations', 'Predictions', f'Q{boundary[0]} - Q{boundary[1]}', 'Q50']
+    fig.legend(legend_elements, labels, loc='right', fontsize='x-large', bbox_to_anchor=(0.96, 0.5))
+
+    if save:
+        plt.savefig(f'./figs/{save}.png', dpi=300, bbox_inches='tight')
