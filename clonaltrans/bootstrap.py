@@ -38,13 +38,12 @@ class Bootstrapping(nn.Module):
         print (time.asctime())
 
     def sample_replace(self, N_ori):
-        buffer, tps, pops = [], N_ori.shape[0] - 1, N_ori.shape[2]
+        buffer, tps, pops = [], N_ori.shape[0], N_ori.shape[2]
         indices = np.arange(0, tps * pops)
         indices_view = indices.reshape((tps, pops))
 
         for gpu_id in range(self.num_gpus):
             sample_N = torch.zeros(N_ori.shape)
-            sample_N[0] = 1
 
             samples = np.random.choice(indices, tps * pops, replace=True)
             counter = Counter(samples)
@@ -54,8 +53,9 @@ class Bootstrapping(nn.Module):
                     pos = indices_view[tp][pop]
 
                     if pos in counter.keys():
-                        sample_N[tp + 1, :, pop] = counter[pos]
+                        sample_N[tp, :, pop] = counter[pos]
 
+            sample_N[0, :, 0] = 1
             buffer.append([sample_N, gpu_id % 4, self.epoch * self.num_gpus + gpu_id])
         
         return buffer
@@ -88,6 +88,6 @@ class Bootstrapping(nn.Module):
         #TODO save only trainable & reasonable reconstruction loss models
         if model.trainable:
             # model.input_N = model.input_N.to('cpu')
-            torch.save(model.to('cpu'), f'./tempnorm/{model.model_id}.pt')
+            torch.save(model.to('cpu'), f'./tempnormday0/{model.model_id}.pt')
 
         return None

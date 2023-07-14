@@ -206,6 +206,9 @@ def rates_notin_paga(model, K_type='const', sep='mixture', value=False, save=Fal
         K = K[np.where(model.oppo_L.cpu().numpy())]
         K_total.append(K[np.where(K != 0)])
 
+    if K_type == 'const':
+        K_total = K_total[0]
+
     sns.histplot((np.stack(K_total).flatten()), bins=50)
     plt.title(f'Rates not in PAGA that are non-zero')
 
@@ -223,6 +226,9 @@ def rates_in_paga(model, K_type='const', sep='mixture', value=False, save=False)
         K = model.get_matrix_K(K_type=K_type, eval=True, tpoint=x[i].round(decimals=1), sep=sep).detach().cpu().numpy()
         K_total.append(K[np.where(np.broadcast_to(model.used_L.cpu().numpy(), K.shape))])
     
+    if K_type == 'const':
+        K_total = K_total[0]
+
     sns.histplot(np.stack(K_total).flatten(), bins=50)
     plt.title(f'Rates in PAGA')
 
