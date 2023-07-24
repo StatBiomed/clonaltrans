@@ -179,7 +179,7 @@ def clone_specific_K(model, K_type='const', index_clone=0, tpoint=1.0, sep='mixt
     plt.title(f'Transition Matrix for Clone {index_clone} Day {np.round(tpoint.cpu(), 1) if type(tpoint) == torch.Tensor else np.round(tpoint, 1)}')
 
     if save:
-        plt.savefig(f'./figs/temp_{tpoint.round(decimals=1)}.png', dpi=300, bbox_inches='tight', transparent=False, facecolor='white')
+        plt.savefig(f'./figs/temp_{np.round(tpoint, 1)}.png', dpi=300, bbox_inches='tight', transparent=False, facecolor='white')
         plt.close()
 
 def diff_K_between_clones(model, K_type='const', index_pop=0, tpoint=1.0, direction='outbound', sep='mixture'):
@@ -292,8 +292,8 @@ def parameter_range(model_list, K_type='const', tpoint=1.0, sep='mixture', ref_m
 
     total_K = []
     for model in pbar:
-        model.input_N = model.input_N.to('cpu')
-        tpoint = torch.tensor([tpoint]).to('cpu')
+        model.input_N = model.input_N.to(0)
+        tpoint = torch.tensor([tpoint]).to(0)
         total_K.append(model.get_matrix_K(K_type=K_type, eval=True, tpoint=tpoint, sep=sep).detach().cpu().numpy())
 
     ref_K = ref_model.get_matrix_K(K_type=K_type, eval=True, tpoint=tpoint, sep=sep).detach().cpu().numpy()

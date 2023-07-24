@@ -53,6 +53,9 @@ class CloneTranModel(nn.Module):
             K_type=K_type
         )
 
+    def get_fractions(self):
+        self.frac = self.N / torch.sum(self.N, dim=(1, 2)).unsqueeze(-1).unsqueeze(-1)
+
     def init_ode_func(self):
         self.ode_func = self.func(self.config.K_type if self.config.K_type != 'mixture_lr' else 'const')
         self.ode_func_dyna = self.func('dynamic')
@@ -102,17 +105,19 @@ class CloneTranModel(nn.Module):
     
     def get_matrix_K(self, K_type='const', eval=False, tpoint=1.0, sep='mixture'):
         if K_type == 'const':
-            K1 = torch.square(self.ode_func.K1) * self.ode_func.K1_mask
+            # print (self.ode_func.K1.get_device(), self.ode_func.supplement[0].get_device(), self.ode_func.K2.get_device())
+            K1 = torch.square(self.ode_func.K1 * self.ode_func.supplement[0] + self.ode_func.supplement[1]) * self.ode_func.K1_mask
+            K2 = self.ode_func.K2.squeeze() * self.ode_func.supplement[2] + self.ode_func.supplement[3]
 
             if eval:
-                matrix_K = self.combine_K1_K2(K1, self.ode_func.K2.squeeze())
+                matrix_K = self.combine_K1_K2(K1, K2)
                 return matrix_K / self.exponent
             else:
                 return K1 / self.exponent * self.oppo_L_nondia, \
-                    ((self.ode_func.K2.squeeze() / self.exponent - 6) > 0).to(torch.float32) * (self.ode_func.K2.squeeze() / self.exponent - 6), \
+                    ((K2 / self.exponent - 6) > 0).to(torch.float32) * (K2 / self.exponent - 6), \
                     torch.concat([
                         torch.flatten(K1 / self.exponent * self.zero_mask.unsqueeze(-1)), 
-                        torch.flatten(self.ode_func.K2.squeeze() * self.zero_mask / self.exponent)
+                        torch.flatten(K2 * self.zero_mask / self.exponent)
                     ]), \
                     torch.tensor([0.])
         

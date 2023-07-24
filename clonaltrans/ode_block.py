@@ -41,6 +41,10 @@ class ODEBlock(nn.Module):
         self.nfe = 0
         self.K_type = K_type
         self.activation = activation_helper(activation)
+        self.supplement = [
+            Parameter(torch.ones((num_clones, num_pops, num_pops)), requires_grad=False), Parameter(torch.zeros((num_clones, num_pops, num_pops)), requires_grad=False),
+            Parameter(torch.ones((num_clones, num_pops)), requires_grad=False), Parameter(torch.zeros((num_clones, num_pops)), requires_grad=False),
+        ]
 
         self.std = Parameter(torch.ones((1, num_clones, num_pops), dtype=torch.float32) * 1, requires_grad=True)
         self.K1_mask = Parameter(torch.triu(torch.ones((num_pops, num_pops)), diagonal=1).unsqueeze(0), requires_grad=False)
@@ -110,8 +114,9 @@ class ODEBlock(nn.Module):
         # print (t)
 
         if self.K_type == 'const':
-            z = torch.bmm(y.unsqueeze(1), torch.square(self.K1) * self.K1_mask).squeeze()
-            z += y * self.K2.squeeze()
+            # print (y.get_device(), self.K1.get_device(), self.supplement[0].get_device(), self.K2.get_device())
+            z = torch.bmm(y.unsqueeze(1), torch.square(self.K1 * self.supplement[0] + self.supplement[1]) * self.K1_mask).squeeze()
+            z += y * (self.K2.squeeze() * self.supplement[2] + self.supplement[3])
             z -= torch.sum(y.unsqueeze(1) * torch.square(self.K1.mT) * self.K1_mask.mT, dim=1)
             return z
     

@@ -100,7 +100,10 @@ def pbar_descrip(var_names, var_lists):
 def pbar_tb_description(var_names, var_lists, iter, writer):
     res = ''
     for idx, variable in enumerate(var_lists):
-        res += f'{var_names[idx]} {variable:.3f}, '
+        if type(variable) != str:
+            res += f'{var_names[idx]} {variable:.3f}, '
+        else:
+            res += f'{var_names[idx]} {variable}, '
 
         if writer is not None:
             writer.add_scalar(var_names[idx], variable, iter)

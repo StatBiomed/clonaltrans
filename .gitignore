@@ -9,7 +9,11 @@ __pycache__/
 runs
 figs
 deprecated
-simulations
+rawdatas
+profilelikeli
+profilefigs
+dyna_boots4tps
+dyna_boots10tps
 
 # Distribution / packaging
 .Python
