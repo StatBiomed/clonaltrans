@@ -41,7 +41,7 @@ def mse_corr(
     if not verbose:
         from .pl import get_subplot_dimensions
         rows, cols, figsize = get_subplot_dimensions(num_t - 1, fig_height_per_row=4)
-        fig, axes = plt.subplots(rows, cols, figsize=(figsize[0] + 3, figsize[1] - 2))
+        fig, axes = plt.subplots(rows, cols, figsize=(figsize[0] + 5, figsize[1]))
 
     for n in range(1, num_t):
         x = (observations[n].cpu() * sample_N[n].cpu()).detach()
@@ -100,13 +100,16 @@ def data_convert(target):
 def grid_visual_interpolate(
     model,
     raw_data: bool = True,
+    variance: bool = False,
+    device: str = 'cpu',
     save: bool = False
 ):
+    assert model.config.include_var == variance
     fig, axes = plt.subplots(model.N.shape[1], model.N.shape[2], figsize=(40, 15), sharex=True)
 
-    model = model.to('cpu')
-    model.input_N = model.input_N.to('cpu')
-    t_smoothed = torch.linspace(model.t_observed[0], model.t_observed[-1], 100).to('cpu')
+    model = model.to(device)
+    model.input_N = model.input_N.to(device)
+    t_smoothed = torch.linspace(model.t_observed[0], model.t_observed[-1], 100).to(device)
     y_pred = model.eval_model(t_smoothed)
 
     #TODO fit for different data transformation techniques
@@ -114,6 +117,15 @@ def grid_visual_interpolate(
         data_values = [model.N, torch.pow(y_pred, 4), None]
     else:
         data_values = [model.input_N, y_pred, None]
+    
+    if variance:
+        std = model.ode_func.std.detach().cpu().numpy()
+        lb, ub = y_pred.cpu().numpy() - std, y_pred.cpu().numpy() + std
+        lb, ub = np.clip(lb, 0, np.max(lb)), np.clip(ub, 0, np.max(ub))
+
+        if raw_data:
+            lb, ub = np.power(lb, 4), np.power(ub, 4)
+    # print (lb[0].squeeze(), ub[0].squeeze())
 
     obs, pred, pred2 = data_convert(data_values)
     t_obs, t_pred, t_pred2 = data_convert([model.t_observed, t_smoothed, None])
@@ -125,6 +137,15 @@ def grid_visual_interpolate(
 
     for row in range(model.N.shape[1]):
         for col in range(model.N.shape[2]):
+            if variance:
+                axes[row][col].fill_between(
+                    t_pred,
+                    lb[:, row, col],
+                    ub[:, row, col],
+                    color='lightskyblue',
+                    alpha=0.5
+                )
+
             size_samples = sample_N[:, row, col]
             plot_gvi(pred2, axes, row, col, t_pred2, data_names[2], 'skyblue', size_samples)
             plot_gvi(pred, axes, row, col, t_pred, data_names[1], 'lightcoral', size_samples)
@@ -156,12 +177,17 @@ def grid_visual_interpolate(
         legend_elements.insert(1, Line2D([0], [0], marker=markers[1], linestyle='', color='#A9A9A9', markersize=7))
         labels.insert(1, 'Sampled 0 time(s)')
 
+    if variance:
+        legend_elements.append(Line2D([0], [0], color='lightskyblue', lw=4))
+        labels.append('mean $\pm$ 1 std')
+
     fig.legend(legend_elements, labels, loc='right', fontsize='x-large', bbox_to_anchor=(0.975, 0.5))
 
     if save:
         plt.savefig(f'./figs/{save}.png', dpi=300, bbox_inches='tight')
 
-def transti_K(model, K, index=None, columns=None):
+def transit_K(model, K, index=None, columns=None):
+    K[np.abs(K) < 1e-4] = 0
     anno = pd.read_csv(os.path.join(model.data_dir, 'annotations.csv'))
     transition_K = pd.DataFrame(
         index=anno['populations'].values if index is None else index, 
@@ -170,46 +196,46 @@ def transti_K(model, K, index=None, columns=None):
     )
     return transition_K
 
-def clone_specific_K(model, K_type='const', index_clone=0, tpoint=1.0, sep='mixture', save=False):
-    K = model.get_matrix_K(K_type=K_type, eval=True, tpoint=tpoint, sep=sep).detach().cpu().numpy()
-    df = transti_K(model, K[index_clone])
+def clone_specific_K(model, K_type='const', index_clone=0, tpoint=1.0, save=False):
+    K = model.get_matrix_K(K_type=K_type, eval=True, tpoint=tpoint).detach().cpu().numpy()
+    df = transit_K(model, K[index_clone])
+    # df = transit_K(model, np.mean(K[:-1], axis=0))
 
     fig, axes = plt.subplots(figsize=(12, 6))
     sns.heatmap(df, annot=True, linewidths=.5, cmap='coolwarm', ax=axes, vmin=-2, vmax=3)
     plt.title(f'Transition Matrix for Clone {index_clone} Day {np.round(tpoint.cpu(), 1) if type(tpoint) == torch.Tensor else np.round(tpoint, 1)}')
 
     if save:
-        plt.savefig(f'./figs/temp_{np.round(tpoint, 1)}.png', dpi=300, bbox_inches='tight', transparent=False, facecolor='white')
+        try: t = np.round(tpoint, 1) 
+        except: t = np.round(tpoint.cpu().numpy(), 1)
+        plt.savefig(f'./figs/temp_{t}.png', dpi=300, bbox_inches='tight', transparent=False, facecolor='white')
         plt.close()
 
-def diff_K_between_clones(model, K_type='const', index_pop=0, tpoint=1.0, direction='outbound', sep='mixture'):
-    K = model.get_matrix_K(K_type=K_type, eval=True, tpoint=tpoint, sep=sep).detach().cpu().numpy()
+def diff_K_between_clones(model, K_type='const', index_pop=0, tpoint=1.0, direction='outbound'):
+    K = model.get_matrix_K(K_type=K_type, eval=True, tpoint=tpoint).detach().cpu().numpy()
     anno = pd.read_csv(os.path.join(model.data_dir, 'annotations.csv'))
     pop_name = anno['populations'].values[index_pop]
 
     if direction == 'outbound':
-        df = transti_K(model, K[:, index_pop, :], anno['clones'].values[:K.shape[0]], pop_name + ' -> ' + anno['populations'].values).T
+        df = transit_K(model, K[:, index_pop, :], anno['clones'].values[:K.shape[0]], pop_name + ' -> ' + anno['populations'].values).T
     if direction == 'inbound':
-        df = transti_K(model, K[:, :, index_pop], anno['clones'].values[:K.shape[0]], anno['populations'].values + ' -> ' + pop_name).T
+        df = transit_K(model, K[:, :, index_pop], anno['clones'].values[:K.shape[0]], anno['populations'].values + ' -> ' + pop_name).T
 
     fig, axes = plt.subplots(figsize=(12, 6))
     sns.heatmap(df, annot=True, linewidths=.5, cmap='coolwarm', ax=axes, vmin=-2, vmax=3)
     plt.xticks(rotation=0)
     plt.title(f'Difference in transition rates between clones for {pop_name} ({direction})')
 
-def rates_notin_paga(model, K_type='const', sep='mixture', value=False, save=False):
+def rates_notin_paga(model, K_type='const', value=False, save=False):
     K_total = []
 
     x = torch.linspace(0, int(model.t_observed[-1].item()), int(model.t_observed[-1].item() * 2 + 1)).to(model.config.gpu)
     for i in range(len(x)):
-        K = model.get_matrix_K(K_type=K_type, eval=True, tpoint=x[i].round(decimals=1), sep=sep).detach().cpu().numpy()
+        K = model.get_matrix_K(K_type=K_type, eval=True, tpoint=x[i].round(decimals=1)).detach().cpu().numpy()
         K = K[np.where(model.oppo_L.cpu().numpy())]
         K_total.append(K[np.where(K != 0)])
 
-    if K_type == 'const':
-        K_total = K_total[0]
-
-    sns.histplot((np.stack(K_total).flatten()), bins=50)
+    sns.histplot(np.stack(K_total).flatten() if K_type != 'const' else K_total[0].flatten(), bins=50)
     plt.title(f'Rates not in PAGA that are non-zero')
 
     if save:
@@ -218,12 +244,12 @@ def rates_notin_paga(model, K_type='const', sep='mixture', value=False, save=Fal
     if value:
         return np.stack(K_total)
 
-def rates_in_paga(model, K_type='const', sep='mixture', value=False, save=False):
+def rates_in_paga(model, K_type='const', value=False, save=False):
     K_total = []
 
     x = torch.linspace(0, int(model.t_observed[-1].item()), int(model.t_observed[-1].item() * 2 + 1)).to(model.config.gpu)
     for i in range(len(x)):
-        K = model.get_matrix_K(K_type=K_type, eval=True, tpoint=x[i].round(decimals=1), sep=sep).detach().cpu().numpy()
+        K = model.get_matrix_K(K_type=K_type, eval=True, tpoint=x[i].round(decimals=1)).detach().cpu().numpy()
         K_total.append(K[np.where(np.broadcast_to(model.used_L.cpu().numpy(), K.shape))])
     
     if K_type == 'const':
@@ -238,18 +264,18 @@ def rates_in_paga(model, K_type='const', sep='mixture', value=False, save=False)
     if value:
         return np.stack(K_total)
 
-def rates_diagonal(model, K_type='const', tpoint=1.0, sep='mixture'):
-    K = model.get_matrix_K(K_type=K_type, eval=True, tpoint=tpoint, sep=sep)
+def rates_diagonal(model, K_type='const', tpoint=1.0):
+    K = model.get_matrix_K(K_type=K_type, eval=True, tpoint=tpoint)
     diag = torch.diagonal(K, dim1=-2, dim2=-1).detach().cpu().numpy()
     anno = pd.read_csv(os.path.join(model.data_dir, 'annotations.csv'))
 
-    df = transti_K(model, diag, anno['clones'].values[:K.shape[0]]).T
+    df = transit_K(model, diag, anno['clones'].values[:K.shape[0]]).T
 
     fig, axes = plt.subplots(figsize=(12, 6))
     sns.heatmap(df, annot=True, linewidths=.5, cmap='coolwarm', ax=axes, vmin=-2, vmax=3)
     plt.title(f'Diagonal of transition rates (Proliferation & Apoptosis)')
 
-def clone_dynamic_K(model, K_type='const', index_clone=0, sep='mixture', suffix=''): 
+def clone_dynamic_K(model, K_type='const', index_clone=0, suffix=''): 
     from PIL import Image
     x = torch.linspace(0, int(model.t_observed[-1].item()), int(model.t_observed[-1].item() * 2 + 1)).to(model.config.gpu)
     
@@ -258,11 +284,49 @@ def clone_dynamic_K(model, K_type='const', index_clone=0, sep='mixture', suffix=
 
     frames = []
     for i in range(len(x)):
-        clone_specific_K(model, K_type, index_clone, x[i].round(decimals=1), sep, save=True)
+        clone_specific_K(model, K_type, index_clone, x[i].round(decimals=1), save=True)
         frames.append(Image.open(f'./figs/temp_{x[i].round(decimals=1)}.png'))
         os.remove(f'./figs/temp_{x[i].round(decimals=1)}.png')
 
     imageio.mimsave(f'K_dynamics_clone_{title}{suffix}.gif', frames, duration=500, loop=0)
+
+def clone_dynamic_K_lines(model, index_clone=0, save=False):
+    K_total = []
+    t_obs = model.t_observed.cpu().numpy()
+    x = torch.linspace(0, int(model.t_observed[-1].item()), 100).to(model.config.gpu)
+    
+    for i in range(len(x)):
+        K = model.get_matrix_K(K_type=model.config.K_type, eval=True, tpoint=x[i].round(decimals=1)).detach().cpu().numpy()
+        # K[np.abs(K) < 1e-4] = 0
+        K_total.append(K)
+    
+    K_total = np.stack(K_total)
+    anno = pd.read_csv(os.path.join(model.data_dir, 'annotations.csv'))
+    graph = pd.read_csv(os.path.join(model.data_dir, 'graph_table.csv'), index_col=0)
+    np.fill_diagonal(graph.values, 1)
+
+    rows, cols, figsize = get_subplot_dimensions(np.sum(graph.values != 0), fig_height_per_row=4)
+    fig, axes = plt.subplots(rows, cols, figsize=(figsize[0] + 5, figsize[1]))
+
+    count = 0
+    for i in range(graph.shape[0]):
+        for j in range(graph.shape[1]):
+            if graph.values[i][j] != 0:
+                axes[count // cols][count % cols].plot(
+                    x.cpu().numpy(), 
+                    K_total[:, index_clone, i, j], 
+                    label='Per capita growth rate', 
+                    color='#2C6975',
+                    lw=4,
+                )
+
+                axes[count // cols][0].set_ylabel('Per capita growth rate')
+                axes[count // cols][count % cols].set_title('From {} to {}'.format(anno['populations'].values[i], anno['populations'].values[j]), fontsize=10)
+                axes[count // cols][count % cols].set_xticks(t_obs, labels=t_obs.astype(int), rotation=45)
+                count += 1
+    
+    if save:
+        plt.savefig(f'./figs/{save}.png', dpi=300, bbox_inches='tight')
 
 def const_and_dyna(K_const, K_dyna, save=False):
     assert K_const.shape == K_dyna.shape
@@ -287,16 +351,16 @@ def const_and_dyna(K_const, K_dyna, save=False):
     if save is not False:
         plt.savefig(f'./figs/{save}.png', dpi=300, bbox_inches='tight')
 
-def parameter_range(model_list, K_type='const', tpoint=1.0, sep='mixture', ref_model=None):
+def parameter_range(model_list, K_type='const', tpoint=1.0, ref_model=None):
     pbar = tqdm(model_list)
 
     total_K = []
     for model in pbar:
-        model.input_N = model.input_N.to(0)
-        tpoint = torch.tensor([tpoint]).to(0)
-        total_K.append(model.get_matrix_K(K_type=K_type, eval=True, tpoint=tpoint, sep=sep).detach().cpu().numpy())
+        model.input_N = model.input_N.to('cpu')
+        tpoint = torch.tensor([tpoint]).to('cpu')
+        total_K.append(model.get_matrix_K(K_type=K_type, eval=True, tpoint=tpoint).detach().cpu().numpy())
 
-    ref_K = ref_model.get_matrix_K(K_type=K_type, eval=True, tpoint=tpoint, sep=sep).detach().cpu().numpy()
+    ref_K = ref_model.get_matrix_K(K_type=K_type, eval=True, tpoint=tpoint).detach().cpu().numpy()
 
     return np.stack(total_K), ref_K # (num_bootstraps, clones, pops, pops)
 
@@ -371,6 +435,7 @@ def trajectory_ci(
     t_obs, t_pred, t_median = data_convert([model_ref.t_observed, t_smoothed, t_smoothed])
     data_names = ['Observations', 'Predictions', 'Q50']
     anno = pd.read_csv(os.path.join(model_ref.data_dir, 'annotations.csv'))
+    sample_N = np.ones(obs.shape)
 
     for row in range(model_ref.N.shape[1]):
         for col in range(model_ref.N.shape[2]):
@@ -378,14 +443,14 @@ def trajectory_ci(
                 t_pred,
                 lb[:, row, col],
                 ub[:, row, col],
-                label='1 std error',
                 color='lightskyblue',
                 alpha=0.5
             )
 
-            plot_gvi(np.percentile(total_pred, 50, axis=0), axes, row, col, t_median, data_names[2], '#929591', np.array([1., 1., 1., 1.]))
-            plot_gvi(total_pred[-1], axes, row, col, t_pred, data_names[1], 'lightcoral', np.array([1., 1., 1., 1.]))
-            plot_gvi(obs, axes, row, col, t_obs, data_names[0], '#2C6975', np.array([1., 1., 1., 1.]))
+            size_samples = sample_N[:, row, col]
+            plot_gvi(np.percentile(total_pred, 50, axis=0), axes, row, col, t_median, data_names[2], '#929591', size_samples)
+            plot_gvi(total_pred[-1], axes, row, col, t_pred, data_names[1], 'lightcoral', size_samples)
+            plot_gvi(obs, axes, row, col, t_obs, data_names[0], '#2C6975', size_samples)
     
             axes[0][col].set_title(anno['populations'][col])
             axes[row][0].set_ylabel(anno['clones'][row])

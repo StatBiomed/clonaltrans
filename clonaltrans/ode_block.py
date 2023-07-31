@@ -24,7 +24,7 @@ def activation_helper(activation):
 class ODEBlock(nn.Module):
     def __init__(
         self, 
-        num_tpoints: int = 4,
+        L,
         num_clones: int = 7,
         num_pops: int = 11,
         hidden_dim: int = 32, 
@@ -46,17 +46,14 @@ class ODEBlock(nn.Module):
             Parameter(torch.ones((num_clones, num_pops)), requires_grad=False), Parameter(torch.zeros((num_clones, num_pops)), requires_grad=False),
         ]
 
-        self.std = Parameter(torch.ones((1, num_clones, num_pops), dtype=torch.float32) * 1, requires_grad=True)
-        self.K1_mask = Parameter(torch.triu(torch.ones((num_pops, num_pops)), diagonal=1).unsqueeze(0), requires_grad=False)
+        self.std = Parameter(torch.ones((1, num_clones, num_pops), dtype=torch.float32), requires_grad=True)
+        # self.K1_mask = Parameter(torch.triu(torch.ones((num_pops, num_pops)), diagonal=1).unsqueeze(0), requires_grad=False)
+        self.K1_mask = Parameter(L.unsqueeze(0), requires_grad=False)
 
         if self.K_type == 'const':
             self.K1, self.K2 = self.get_const(num_clones, num_pops)
         
         if self.K_type == 'dynamic':
-            self.K1_encode, self.K1_decode, self.K2_encode, self.K2_decode = self.get_dynamic(num_clones, num_pops, hidden_dim)
-        
-        if self.K_type == 'mixture':
-            self.K1, self.K2 = self.get_const(num_clones, num_pops)
             self.K1_encode, self.K1_decode, self.K2_encode, self.K2_decode = self.get_dynamic(num_clones, num_pops, hidden_dim)
 
     def get_const(self, num_clones, num_pops):
@@ -75,7 +72,7 @@ class ODEBlock(nn.Module):
         if basis == 'kaiming_uniform':
             nn.init.kaiming_uniform_(weight, a=math.sqrt(5))
         if basis == 'normal':
-            nn.init.normal_(weight, 0, 0.05)
+            nn.init.normal_(weight, 0, 0.03)
         if basis == 'kaiming_normal':
             nn.init.kaiming_normal_(weight)
 
@@ -115,6 +112,7 @@ class ODEBlock(nn.Module):
 
         if self.K_type == 'const':
             # print (y.get_device(), self.K1.get_device(), self.supplement[0].get_device(), self.K2.get_device())
+            # print (y.shape, self.K2.shape, self.supplement[2].shape, self.supplement[3].shape, self.K2.squeeze().unsqueeze(0).shape)
             z = torch.bmm(y.unsqueeze(1), torch.square(self.K1 * self.supplement[0] + self.supplement[1]) * self.K1_mask).squeeze()
             z += y * (self.K2.squeeze() * self.supplement[2] + self.supplement[3])
             z -= torch.sum(y.unsqueeze(1) * torch.square(self.K1.mT) * self.K1_mask.mT, dim=1)
@@ -125,21 +123,6 @@ class ODEBlock(nn.Module):
             z = torch.bmm(y.unsqueeze(1), K1_t).squeeze()
             z += y * K2_t 
             z -= torch.sum(y.unsqueeze(1) * K1_t.mT, dim=1)
-            return z
-    
-        if self.K_type == 'mixture':
-            z1 = torch.bmm(y.unsqueeze(1), torch.square(self.K1) * self.K1_mask).squeeze()
-            z1 += y * self.K2.squeeze()
-            z1 -= torch.sum(y.unsqueeze(1) * torch.square(self.K1.mT) * self.K1_mask.mT, dim=1)
-
-            K1_t, K2_t = self.get_K1_K2(y)
-            z2 = torch.bmm(y.unsqueeze(1), K1_t).squeeze()
-            z2 += y * K2_t 
-            z2 -= torch.sum(y.unsqueeze(1) * K1_t.mT, dim=1)
-
-            # z = torch.sigmoid(self.lam) * z1 + (1 - torch.sigmoid(self.lam)) * z2
-            # z = self.lam * z1 + (1 - self.lam) * z2
-            z = z1 + z2
             return z
 
     def extra_repr(self) -> str:
@@ -156,15 +139,3 @@ class ODEBlock(nn.Module):
                 self.K2_encode.shape, self.K2_decode.shape
             )
             return expr1 + '\n' + expr2
-
-        if self.K_type == 'mixture':
-            expr1 = 'K1 (clone, pop, pop) = {}, \nK2 (clone, pop) = {}'.format(
-                self.K1.shape, self.K2.squeeze().shape
-            )
-            expr2 = 'K1_encode (clone, pop, hidden) = {}, \nK1_decode (clone, hidden, pop * pop) = {}'.format(
-                self.K1_encode.shape, self.K1_decode.shape
-            )
-            expr3 = 'K2_encode (clone, pop, hidden) = {}, \nK2_decode (clone, hidden, pop) = {}'.format(
-                self.K2_encode.shape, self.K2_decode.shape
-            )
-            return expr1 + '\n' + expr2 + '\n' + expr3

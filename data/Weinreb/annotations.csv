@@ -1,0 +1,23 @@
+clones,populations
+Clone 0,prog_1
+Clone 1,prog_2
+Clone 2,prog_3
+Clone 3,prog_4
+Clone 4,prog_Baso_Meg_Ery_Mast
+Clone 5,prog_Ly_pDC
+Clone 6,prog_Baso_Eos
+Clone 7,prog_DC_Mono
+Clone 8,prog_Mono
+Clone 9,prog_Meg_Ery
+Clone 10,early_prog_Neu
+Clone 11,prog_Neu
+Clone 12,Baso
+Clone 13,Eos
+Clone 14,pDC
+Clone 15,DC
+Clone 16,Mono
+Clone 17,Ly
+Clone 18,Meg
+Clone 19,Ery
+Clone 20,Mast
+Clone 21,Neu

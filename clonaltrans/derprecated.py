@@ -265,3 +265,103 @@ def streamline_per_epoch(self, data_dir, t_observed, epoch, loss):
         save=False
     )
     plt.title(f'Epoch {epoch}, Loss {loss:.3f}')
+
+class Mixture(nn.Module):
+    def __init__(self) -> None:
+        super(Mixture, self).__init__()
+        print (f'{config.K_type}', '\n', self.ode_func_dyna) if config.K_type == 'mixture_lr' else print ('')
+
+        if self.K_type == 'mixture':
+            self.K1, self.K2 = self.get_const(num_clones, num_pops)
+            self.K1_encode, self.K1_decode, self.K2_encode, self.K2_decode = self.get_dynamic(num_clones, num_pops, hidden_dim)
+
+    def init_optimizer(self):
+        if self.config.K_type == 'mixture_lr':
+            self.optimizer_dyna = torch.optim.Adam(self.ode_func_dyna.parameters(), lr=0.001, amsgrad=True)
+            self.scheduler_dyna = torch.optim.lr_scheduler.MultiStepLR(self.optimizer_dyna, milestones=[100 * i for i in range(1, 10)], gamma=0.5)
+
+    def get_matrix_K(self, K_type='const', eval=False, tpoint=1.0, sep='mixture'):
+        if K_type == 'mixture':
+            K1 = torch.square(self.ode_func.K1) * self.ode_func.K1_mask
+            K2 = self.ode_func.K2.squeeze()
+
+            if eval:
+                function = self.ode_func_dyna if self.config.K_type == 'mixture_lr' else self.ode_func
+                fraction = 2 if self.config.K_type == 'mixture_lr' else 1
+                assert sep in ['const', 'dynamic', 'mixture']
+                K1_t, K2_t = self.get_Kt(tpoint, function)
+
+                if sep == 'const':
+                    return self.combine_K1_K2(K1, K2) / self.exponent / fraction
+                if sep == 'dynamic':
+                    return self.combine_K1_K2(K1_t, K2_t) / self.exponent / fraction
+                if sep == 'mixture':
+                    return self.combine_K1_K2(K1 + K1_t, K2 + K2_t) / self.exponent / fraction
+            
+            else:
+                function = self.ode_func_dyna if self.config.K_type == 'mixture_lr' else self.ode_func
+                K1, K2 = K1.unsqueeze(0), K2.unsqueeze(0)
+                res_K1_t, res_K2_t = self.get_Kt_train(function) # (t, c, p, p) and (t, c, p)
+
+                return torch.concat([K1, res_K1_t]) / self.exponent * self.oppo_L_nondia.unsqueeze(0), \
+                    ((torch.concat([K2, res_K2_t]) / self.exponent - 6) > 0).to(torch.float32) * (torch.concat([K2, res_K2_t]) / self.exponent - 6), \
+                    torch.concat([
+                        torch.flatten(torch.concat([K1, res_K1_t]) / self.exponent * (self.N == 0).unsqueeze(-1).to(torch.float32)), 
+                        torch.flatten(torch.concat([K2, res_K2_t]) / self.exponent * (self.N == 0).to(torch.float32))
+                    ]), \
+                    torch.concat([torch.flatten(function.K1_decode), torch.flatten(function.K2_decode)])
+        
+    def train_model(self, t_observed):
+        if self.config.K_type == 'mixture_lr':
+            self.optimizer_dyna.zero_grad()
+
+            y_pred_dyna = odeint(self.ode_func_dyna, self.input_N[0], t_observed, 
+                method='dopri5', rtol=1e-4, atol=1e-4, options=dict(dtype=torch.float32))
+            # y_pred_dyna = odeint(self.ode_func_dyna, self.input_N[0], t_observed, 
+            #     method='rk4', options=dict(step_size=0.1))
+
+            y_pred = (y_pred + y_pred_dyna) / 2
+
+        if self.config.K_type == 'mixture_lr':
+            self.optimizer_dyna.step()
+            self.scheduler_dyna.step()
+        
+    def eval_model(self, t_eval):
+        if self.config.K_type == 'mixture_lr':
+            self.ode_func_dyna.eval()
+            y_pred_dyna = odeint(self.ode_func_dyna, self.input_N[0], t_eval, method='dopri5')
+            y_pred = (y_pred + y_pred_dyna) / 2
+    
+        elif self.config.input_form == 'log' and log_output:
+            return y_pred
+        
+        else: return (torch.exp(y_pred) - 1.0)
+    
+    def forward(self, y):
+        if self.K_type == 'mixture':
+            z1 = torch.bmm(y.unsqueeze(1), torch.square(self.K1) * self.K1_mask).squeeze()
+            z1 += y * self.K2.squeeze()
+            z1 -= torch.sum(y.unsqueeze(1) * torch.square(self.K1.mT) * self.K1_mask.mT, dim=1)
+
+            K1_t, K2_t = self.get_K1_K2(y)
+            z2 = torch.bmm(y.unsqueeze(1), K1_t).squeeze()
+            z2 += y * K2_t 
+            z2 -= torch.sum(y.unsqueeze(1) * K1_t.mT, dim=1)
+
+            # z = torch.sigmoid(self.lam) * z1 + (1 - torch.sigmoid(self.lam)) * z2
+            # z = self.lam * z1 + (1 - self.lam) * z2
+            z = z1 + z2
+            return z
+    
+    def extra_repr(self) -> str:
+        if self.K_type == 'mixture':
+            expr1 = 'K1 (clone, pop, pop) = {}, \nK2 (clone, pop) = {}'.format(
+                self.K1.shape, self.K2.squeeze().shape
+            )
+            expr2 = 'K1_encode (clone, pop, hidden) = {}, \nK1_decode (clone, hidden, pop * pop) = {}'.format(
+                self.K1_encode.shape, self.K1_decode.shape
+            )
+            expr3 = 'K2_encode (clone, pop, hidden) = {}, \nK2_decode (clone, hidden, pop) = {}'.format(
+                self.K2_encode.shape, self.K2_decode.shape
+            )
+            return expr1 + '\n' + expr2 + '\n' + expr3

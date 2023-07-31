@@ -18,6 +18,7 @@ def run_model(
         paga, array_total = get_topo_obs(
             data_dir=data_dir, 
             init_day_zero=True,
+            init_bg=False,
             device=config.gpu
         )
     else:

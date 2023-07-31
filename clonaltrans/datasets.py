@@ -9,6 +9,7 @@ def get_topo_obs(
     data_dir, 
     fill_diagonal: bool = False, 
     init_day_zero: bool = True,
+    init_bg: bool = False,
     device: int = 0
 ):
     # PAGA Topology (Population Adjacency Matrix), same for each clones?
@@ -33,7 +34,7 @@ def get_topo_obs(
         print (f'Day 0 has been added. Input data shape: {array_ori.shape}')
 
     # generate background cells
-    if True:
+    if init_bg:
         background = torch.mean(array_ori, axis=1).unsqueeze(1)
         array_total = torch.concatenate((array_ori, background), axis=1)
         print (f'Background reference cells generated (mean of all other clones). Input data shape: {array_total.shape}')

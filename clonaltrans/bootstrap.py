@@ -14,12 +14,19 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from scipy import interpolate
 from matplotlib.lines import Line2D
+from .utils import set_seed
 
 class Bootstrapping(nn.Module):
     def __init__(self, model, offset: int = 0) -> None:
-        super().__init__()
+        super(Bootstrapping, self).__init__()
 
-        self.model = model
+        self.t_observed = model.t_observed.to('cpu')
+        self.data_dir = model.data_dir
+        self.config = model.config
+        self.num_gpus = 30
+
+        self.N = model.N.detach().clone().to('cpu')
+        self.L = model.L.detach().clone().to('cpu')
         self.config = model.config
         self.num_gpus = 4
         self.offset = offset
@@ -37,7 +44,7 @@ class Bootstrapping(nn.Module):
             with multiprocessing.Pool(self.num_gpus) as pool:
                 res = pool.map_async(
                     self.process, 
-                    self.sample_replace(self.model.N.clone(), epoch)
+                    self.sample_replace(self.N, epoch)
                 )
                 
                 pool.close()
@@ -62,28 +69,30 @@ class Bootstrapping(nn.Module):
                         sample_N[tp, :, pop] = counter[pos]
 
             sample_N[0, :, :] = 1
-            buffer.append([sample_N, gpu_id % 4, epoch * self.num_gpus + gpu_id + self.offset])
+            buffer.append([sample_N, gpu_id % 2, epoch * self.num_gpus + gpu_id + self.offset])
         
         return buffer
 
     def process(self, args):
         sample_N, gpu_id, model_id = args
+        set_seed(42)
 
         self.config.gpu = gpu_id
-        self.config.num_epochs = 2000
-        self.config.lrs_ms = [500 * i for i in range(1, 4)]
+        self.config.learning_rate = 0.002
+        self.config.num_epochs = 3000
+        self.config.lrs_ms = [500 * i for i in range(1, 6)]
 
         model = CloneTranModel(
-            N=self.model.N.clone().to(gpu_id), 
-            L=self.model.L.clone().to(gpu_id), 
+            N=self.N.to(gpu_id), 
+            L=self.L.to(gpu_id), 
             config=self.config, 
             writer=None, 
             sample_N=sample_N.to(gpu_id)
         ).to(gpu_id)
 
         model.trainable = True
-        model.t_observed = self.model.t_observed.clone().to(gpu_id)
-        model.data_dir = self.model.data_dir
+        model.t_observed = self.t_observed.clone().to(gpu_id)
+        model.data_dir = self.data_dir
         model.model_id = model_id
 
         try:
@@ -99,7 +108,7 @@ class Bootstrapping(nn.Module):
             torch.save(model, f'./dyna_boots10tps/{model.model_id}.pt')
     
     def boot_validate(self, model):
-        pena_K1_nonL, _, pena_pop_zero, _ = model.get_matrix_K(K_type=model.config.K_type if model.config.K_type != 'mixture_lr' else 'mixture')
+        pena_K1_nonL, _, pena_pop_zero, _ = model.get_matrix_K(K_type=model.config.K_type)
         
         if torch.sum(pena_K1_nonL) < 0.5:
             return model
@@ -147,6 +156,10 @@ class ProfileLikelihood(nn.Module):
                             
                             pool.close()
                             pool.join()
+                        
+                        ref_model = torch.load('./rawdatasbg/const_var_L.pt')
+                        cal_K, likeli = self.profile_validate(ref_model, clone, pop1, pop2)
+                        self.plot_profile(cal_K, likeli, clone, self.anno[pop1, 1], self.anno[pop2, 1])
 
     def fix_para_model(self, clone, pop1, pop2, best_fit):
         buffer = []
@@ -159,24 +172,22 @@ class ProfileLikelihood(nn.Module):
 
     def profile_process(self, args):
         candi, gpu_id, clone, pop1, pop2, trail_id = args
+        set_seed(42)
 
         self.config.gpu = gpu_id
-        self.config.learning_rate = 0.01
-        self.config.num_epochs = 2000
-        self.config.lrs_ms = [500 * i for i in range(1, 4)]
+        self.config.learning_rate = 0.05
+        self.config.num_epochs = 3000
+        self.config.lrs_ms = [500 * i for i in range(1, 6)]
+
+        supplement = [
+            torch.ones((self.N.shape[1], self.N.shape[2], self.N.shape[2])), torch.zeros((self.N.shape[1], self.N.shape[2], self.N.shape[2])),
+            torch.ones((self.N.shape[1], self.N.shape[2])), torch.zeros((self.N.shape[1], self.N.shape[2])),
+        ]
 
         if pop1 != pop2:
-            supplement = [
-                torch.ones((7, 11, 11)), torch.zeros((7, 11, 11)),
-                torch.ones((7, 11)), torch.zeros((7, 11)),
-            ]
             supplement[0][clone, pop1, pop2] = 0
             supplement[1][clone, pop1, pop2] = candi
         else:
-            supplement = [
-                torch.ones((7, 11, 11)), torch.zeros((7, 11, 11)),
-                torch.ones((7, 11)), torch.zeros((7, 11)),
-            ]
             supplement[2][clone, pop1] = 0
             supplement[3][clone, pop1] = candi
 
@@ -187,10 +198,12 @@ class ProfileLikelihood(nn.Module):
             writer=None, 
             sample_N=torch.ones(self.N.shape).to(gpu_id),
         ).to(gpu_id)
-
-        # model.ode_func.K1 = Parameter(self.K1.to(gpu_id), requires_grad=True)
-        # model.ode_func.K2 = Parameter(self.K2.to(gpu_id), requires_grad=True)
-        # model.ode_func.std = Parameter(self.std.to(gpu_id), requires_grad=True)
+        # print (gpu_id, model.ode_func.K1.get_device(), model.ode_func.K2.get_device(), model.ode_func.std.get_device())
+        
+        # del model.ode_func.std, model.ode_func.K1, model.ode_func.K2
+        # model.ode_func.std = Parameter(self.std, requires_grad=True).to(gpu_id)
+        # model.ode_func.K1 = Parameter(self.K1, requires_grad=True).to(gpu_id)
+        # model.ode_func.K2 = Parameter(self.K2, requires_grad=True).to(gpu_id)
         model.ode_func.supplement = [Parameter(supplement[i], requires_grad=False).to(gpu_id) for i in range(4)]
 
         model.trainable = True
@@ -216,7 +229,7 @@ class ProfileLikelihood(nn.Module):
             scale=torch.maximum(std, torch.tensor([eps]))
         )
         log_prob = dist.log_prob(model.input_N)
-        return torch.sum(log_prob).detach().cpu().numpy()
+        return -torch.sum(log_prob).detach().cpu().numpy()
 
     def profile_validate(
         self, 
