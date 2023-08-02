@@ -169,7 +169,7 @@ class CloneTranModel(nn.Module):
         )
 
         descrip = pbar_tb_description(
-            ['ID', 'L/NonL', 'L/K2Ub', 'L/Recon', 'L/VarUb', 'L/L2Norm'],
+            ['ID', 'L/NonL', 'L/K2Ub', 'L/Recon', 'L/VarUb', 'L/Pop0'],
             [
                 self.model_id, 
                 l1.item() / self.config.alpha, 

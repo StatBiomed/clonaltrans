@@ -2,6 +2,7 @@ def run_model(
     config, 
     t_observed,
     t_norm: bool = False,
+    num_pops: int = 11,
     data_dir: str = './data/V3_Mingze',
     N: any = None,
     L: any = None
@@ -16,6 +17,7 @@ def run_model(
 
     if N == None:
         paga, array_total = get_topo_obs(
+            num_pops=num_pops,
             data_dir=data_dir, 
             init_day_zero=True,
             init_bg=False,

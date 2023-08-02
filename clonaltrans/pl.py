@@ -114,7 +114,7 @@ def grid_visual_interpolate(
 
     #TODO fit for different data transformation techniques
     if raw_data:
-        data_values = [model.N, torch.pow(y_pred, 4), None]
+        data_values = [model.N, torch.pow(y_pred, 1 / model.config.exponent), None]
     else:
         data_values = [model.input_N, y_pred, None]
     
@@ -124,7 +124,7 @@ def grid_visual_interpolate(
         lb, ub = np.clip(lb, 0, np.max(lb)), np.clip(ub, 0, np.max(ub))
 
         if raw_data:
-            lb, ub = np.power(lb, 4), np.power(ub, 4)
+            lb, ub = np.power(lb, 1 / model.config.exponent), np.power(ub, 1 / model.config.exponent)
     # print (lb[0].squeeze(), ub[0].squeeze())
 
     obs, pred, pred2 = data_convert(data_values)
@@ -187,7 +187,7 @@ def grid_visual_interpolate(
         plt.savefig(f'./figs/{save}.png', dpi=300, bbox_inches='tight')
 
 def transit_K(model, K, index=None, columns=None):
-    K[np.abs(K) < 1e-4] = 0
+    # K[np.abs(K) < 1e-4] = 0
     anno = pd.read_csv(os.path.join(model.data_dir, 'annotations.csv'))
     transition_K = pd.DataFrame(
         index=anno['populations'].values if index is None else index, 
@@ -412,7 +412,7 @@ def trajectory_range(model_list, model_ref, raw_data=True):
 
         #TODO fit for different data transformation techniques
         if raw_data:
-            data_values = [model.N, torch.pow(y_pred, 4), None]
+            data_values = [model.N, torch.pow(y_pred, 1 / model_ref.config.exponent), None]
         else:
             data_values = [model.input_N, y_pred, None]
 

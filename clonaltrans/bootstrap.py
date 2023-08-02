@@ -201,7 +201,7 @@ class ProfileLikelihood(nn.Module):
         # print (gpu_id, model.ode_func.K1.get_device(), model.ode_func.K2.get_device(), model.ode_func.std.get_device())
         
         # del model.ode_func.std, model.ode_func.K1, model.ode_func.K2
-        # model.ode_func.std = Parameter(self.std, requires_grad=True).to(gpu_id)
+        # model.ode_func.std = Parameter(self.std, requires_grad=False).to(gpu_id)
         # model.ode_func.K1 = Parameter(self.K1, requires_grad=True).to(gpu_id)
         # model.ode_func.K2 = Parameter(self.K2, requires_grad=True).to(gpu_id)
         model.ode_func.supplement = [Parameter(supplement[i], requires_grad=False).to(gpu_id) for i in range(4)]

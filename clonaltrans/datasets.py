@@ -7,6 +7,7 @@ from torch.nn.parameter import Parameter
 
 def get_topo_obs(
     data_dir, 
+    num_pops: int = 11,
     fill_diagonal: bool = False, 
     init_day_zero: bool = True,
     init_bg: bool = False,
@@ -22,7 +23,7 @@ def get_topo_obs(
 
     # number of cells (per timepoints, per meta-clone, per population)
     array = np.loadtxt(os.path.join(data_dir, 'kinetics_array_correction_factor.txt'))
-    array_ori = array.reshape(array.shape[0], array.shape[1] // 11, 11)
+    array_ori = array.reshape(array.shape[0], array.shape[1] // num_pops, num_pops)
     array_ori = torch.swapaxes(torch.tensor(array_ori, dtype=torch.float32), 0, 1)
     print (f'Input cell data (num_timepoints {array_ori.shape[0]}, num_clones {array_ori.shape[1]}, num_populations {array_ori.shape[2]}) loaded.')
 
