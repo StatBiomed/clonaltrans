@@ -9,11 +9,9 @@ __pycache__/
 runs
 figs
 deprecated
-rawdatas
-profilelikeli
-profilefigs
-dyna_boots4tps
-dyna_boots10tps
+data/V3_Mingze/models
+data/V4_10tpoint/models
+data/V5_Mingze_BG/models
 
 # Distribution / packaging
 .Python

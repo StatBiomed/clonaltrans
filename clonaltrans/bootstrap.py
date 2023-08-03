@@ -116,7 +116,7 @@ class Bootstrapping(nn.Module):
             return None
 
 class ProfileLikelihood(nn.Module):
-    def __init__(self, model) -> None:
+    def __init__(self, model, model_path) -> None:
         super(ProfileLikelihood, self).__init__()
 
         self.t_observed = model.t_observed.to('cpu')
@@ -134,6 +134,7 @@ class ProfileLikelihood(nn.Module):
         np.fill_diagonal(self.paga, 1)
 
         self.anno = pd.read_csv(os.path.join(model.data_dir, 'annotations.csv')).values
+        self.model_path = model_path
 
     def profilestart(self):
         print (time.asctime())
@@ -157,13 +158,17 @@ class ProfileLikelihood(nn.Module):
                             pool.close()
                             pool.join()
                         
-                        ref_model = torch.load('./rawdatasbg/const_var_L.pt')
-                        cal_K, likeli = self.profile_validate(ref_model, clone, pop1, pop2)
+                        dir_models = os.path.join(os.path.split(self.model_path)[0], '..', 'profilelikeli')
+                        ref_model = torch.load(os.path.join(dir_models, f'C{clone}_P{pop1}_P{pop2}_T15.pt'))
+                        cal_K, likeli = self.profile_validate(
+                            ref_model, clone, pop1, pop2, 
+                            dir_models=dir_models
+                        )
                         self.plot_profile(cal_K, likeli, clone, self.anno[pop1, 1], self.anno[pop2, 1])
 
     def fix_para_model(self, clone, pop1, pop2, best_fit):
         buffer = []
-        candidates = torch.linspace(best_fit.item() - 0.5, best_fit.item() + 0.5, self.num_gpus)
+        candidates = torch.linspace(best_fit.item() - 0.5, best_fit.item() + 0.5, self.num_gpus + 1)
 
         for trail_id, candi in enumerate(candidates):
             buffer.append([candi, trail_id % 3 + 1, clone, pop1, pop2, trail_id])
@@ -175,9 +180,9 @@ class ProfileLikelihood(nn.Module):
         set_seed(42)
 
         self.config.gpu = gpu_id
-        self.config.learning_rate = 0.05
-        self.config.num_epochs = 3000
-        self.config.lrs_ms = [500 * i for i in range(1, 6)]
+        self.config.learning_rate = 0.002
+        self.config.num_epochs = 2000
+        self.config.lrs_ms = [500 * i for i in range(1, 4)]
 
         supplement = [
             torch.ones((self.N.shape[1], self.N.shape[2], self.N.shape[2])), torch.zeros((self.N.shape[1], self.N.shape[2], self.N.shape[2])),
@@ -191,20 +196,15 @@ class ProfileLikelihood(nn.Module):
             supplement[2][clone, pop1] = 0
             supplement[3][clone, pop1] = candi
 
+        self.supplement = [Parameter(supplement[i], requires_grad=False).to(gpu_id) for i in range(4)]
         model = CloneTranModel(
             N=self.N.to(gpu_id), 
             L=self.L.to(gpu_id), 
             config=self.config, 
             writer=None, 
             sample_N=torch.ones(self.N.shape).to(gpu_id),
+            extras=[self.std.clone().to(gpu_id), self.K1.clone().to(gpu_id), self.K2.clone().to(gpu_id), self.supplement]
         ).to(gpu_id)
-        # print (gpu_id, model.ode_func.K1.get_device(), model.ode_func.K2.get_device(), model.ode_func.std.get_device())
-        
-        # del model.ode_func.std, model.ode_func.K1, model.ode_func.K2
-        # model.ode_func.std = Parameter(self.std, requires_grad=False).to(gpu_id)
-        # model.ode_func.K1 = Parameter(self.K1, requires_grad=True).to(gpu_id)
-        # model.ode_func.K2 = Parameter(self.K2, requires_grad=True).to(gpu_id)
-        model.ode_func.supplement = [Parameter(supplement[i], requires_grad=False).to(gpu_id) for i in range(4)]
 
         model.trainable = True
         model.t_observed = self.t_observed.clone().to(gpu_id)
@@ -220,7 +220,7 @@ class ProfileLikelihood(nn.Module):
              model.input_N = model.input_N.to('cpu')
              model.ode_func = model.ode_func.to('cpu')
              model.ode_func.supplement = [i.to('cpu') for i in model.ode_func.supplement]
-             torch.save(model.to('cpu'), f'./profilelikeli/{model.model_id}.pt')
+             torch.save(model.to('cpu'), os.path.join(os.path.split(self.model_path)[0], '..', 'profilelikeli', f'{model.model_id}.pt'))
 
     def get_likelihood(self, model, eps: float = 1e-3):
         std = torch.sqrt(torch.square(model.ode_func.std))
@@ -243,7 +243,7 @@ class ProfileLikelihood(nn.Module):
         model_list, likeli, Ks = [], [], []
 
         for files in natsorted(os.listdir(dir_models)):
-            if files.startswith(f'C{clone}_P{pop1}_P{pop2}'):
+            if files.startswith(f'C{clone}_P{pop1}_P{pop2}') and files != f'C{clone}_P{pop1}_P{pop2}_T15.pt':
                 model_list.append(torch.load(os.path.join(dir_models, files)))
         print (f'# of profiled attemps: {len(model_list)} for C{clone}_P{pop1}_P{pop2}')
 
@@ -285,10 +285,10 @@ class ProfileLikelihood(nn.Module):
         plt.ylabel('Gaussian NLL')
         plt.title(f'From {pop1} to {pop2}', fontsize=10)
 
-        plt.savefig(f'./profilefigs/C{clone}_{pop1}_{pop2}.png', dpi=300, bbox_inches='tight')
+        plt.savefig(os.path.join(os.path.split(self.model_path)[0], '../..', f'figures/profilefigs/C{clone}_{pop1}_{pop2}.png'), dpi=300, bbox_inches='tight')
         plt.close()
 
-    def profile_all(self, ref_model):
+    def profile_all(self, ref_model, dir_models):
         for clone in range(self.N.shape[1]):
             for pop1 in range(self.N.shape[2]):
                 for pop2 in range(self.N.shape[2]):
@@ -297,5 +297,5 @@ class ProfileLikelihood(nn.Module):
                         best_fit = self.K1[clone, pop1, pop2] if pop1 != pop2 else self.K2[clone, pop1]
                         print ('Profile parameter for clone {}, pop1 {}, pop2 {}, value of best fit {:.3f}'.format(clone, self.anno[pop1, 1], self.anno[pop2, 1], best_fit.item()))
 
-                        cal_K, likeli = self.profile_validate(ref_model, clone, pop1, pop2)
+                        cal_K, likeli = self.profile_validate(ref_model, clone, pop1, pop2, dir_models=dir_models)
                         self.plot_profile(cal_K, likeli, clone, self.anno[pop1, 1], self.anno[pop2, 1])

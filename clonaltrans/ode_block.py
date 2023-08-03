@@ -30,6 +30,7 @@ class ODEBlock(nn.Module):
         hidden_dim: int = 32, 
         activation: str = 'softplus', 
         K_type: str = 'const',
+        extras: any = None
     ):
         '''
         ODE function dydt = K1 * y + K2 * y + K1.T * y 
@@ -41,17 +42,25 @@ class ODEBlock(nn.Module):
         self.nfe = 0
         self.K_type = K_type
         self.activation = activation_helper(activation)
-        self.supplement = [
-            Parameter(torch.ones((num_clones, num_pops, num_pops)), requires_grad=False), Parameter(torch.zeros((num_clones, num_pops, num_pops)), requires_grad=False),
-            Parameter(torch.ones((num_clones, num_pops)), requires_grad=False), Parameter(torch.zeros((num_clones, num_pops)), requires_grad=False),
-        ]
 
-        self.std = Parameter(torch.ones((1, num_clones, num_pops), dtype=torch.float32), requires_grad=True)
+        if extras == None:
+            self.std = Parameter(torch.ones((1, num_clones, num_pops), dtype=torch.float32), requires_grad=True)
+            self.supplement = [
+                Parameter(torch.ones((num_clones, num_pops, num_pops)), requires_grad=False), Parameter(torch.zeros((num_clones, num_pops, num_pops)), requires_grad=False),
+                Parameter(torch.ones((num_clones, num_pops)), requires_grad=False), Parameter(torch.zeros((num_clones, num_pops)), requires_grad=False),
+            ]
+
+        else:
+            self.std, self.supplement = Parameter(extras[0], requires_grad=True), extras[3]
+
         # self.K1_mask = Parameter(torch.triu(torch.ones((num_pops, num_pops)), diagonal=1).unsqueeze(0), requires_grad=False)
         self.K1_mask = Parameter(L.unsqueeze(0), requires_grad=False)
 
         if self.K_type == 'const':
-            self.K1, self.K2 = self.get_const(num_clones, num_pops)
+            if extras == None:
+                self.K1, self.K2 = self.get_const(num_clones, num_pops)
+            else:
+                self.K1, self.K2 = Parameter(extras[1], requires_grad=True), Parameter(extras[2], requires_grad=True)
         
         if self.K_type == 'dynamic':
             self.K1_encode, self.K1_decode, self.K2_encode, self.K2_decode = self.get_dynamic(num_clones, num_pops, hidden_dim)

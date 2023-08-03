@@ -18,7 +18,8 @@ class CloneTranModel(nn.Module):
         L, # (num_populations, num_populations)
         config,
         writer: any = None,
-        sample_N: any = None
+        sample_N: any = None,
+        extras: any = None
     ):
         super(CloneTranModel, self).__init__()
         self.N = N
@@ -29,6 +30,7 @@ class CloneTranModel(nn.Module):
         self.config = config
         self.writer = writer
         self.model_id = 0
+        self.extras = extras
 
         self.init_ode_func()
         self.init_optimizer()
@@ -53,15 +55,12 @@ class CloneTranModel(nn.Module):
             num_pops=self.N.shape[2],
             hidden_dim=self.config.hidden_dim, 
             activation=self.config.activation, 
-            K_type=K_type
-        )
-
-    def get_fractions(self):
-        self.frac = self.N / torch.sum(self.N, dim=(1, 2)).unsqueeze(-1).unsqueeze(-1)
+            K_type=K_type,
+            extras=self.extras
+        ).to(self.config.gpu)
 
     def init_ode_func(self):
         self.ode_func = self.func(self.config.K_type)
-        self.ode_func_dyna = self.func('dynamic')
         self.ode_func.supplement = [self.ode_func.supplement[i].to(self.config.gpu) for i in range(4)]
 
     def init_optimizer(self):
@@ -196,7 +195,6 @@ class CloneTranModel(nn.Module):
         '''
 
         self.ode_func.train()
-        self.ode_func_dyna.train()
 
         pbar = tqdm(range(self.config.num_epochs))
         for epoch in pbar:
