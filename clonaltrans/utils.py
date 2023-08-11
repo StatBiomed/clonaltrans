@@ -152,3 +152,10 @@ def var_interp_1d(variance, t_observed, kind='linear'):
     
     vars_inter[vars_inter < 0] = 0
     return vars_inter
+
+def revert_var(model):
+    std = torch.abs(model.ode_func.std).detach().cpu().numpy()
+    y_pred = model.eval_model(model.t_observed)
+    lb, ub = y_pred.cpu().numpy() - std, y_pred.cpu().numpy() + std
+    lb, ub = np.clip(lb, 0, np.max(lb)), np.clip(ub, 0, np.max(ub))
+    return np.power(ub, 1 / model.config.exponent) - np.power(y_pred.cpu().numpy(), 1 / model.config.exponent)

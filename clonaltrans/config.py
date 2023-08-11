@@ -25,8 +25,6 @@ class Configuration():
         # higher value -> K is more determined and resembles self.K_type = 'const', default 1e-3
         self.beta = 1e-3
 
-        self.include_var = True
-
         #* OPTIMIZER & SCHEDULER
         self.learning_rate = 1e-3
         self.num_epochs = 1000

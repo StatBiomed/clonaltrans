@@ -28,7 +28,6 @@ class Bootstrapping(nn.Module):
         self.N = model.N.detach().clone().to('cpu')
         self.L = model.L.detach().clone().to('cpu')
         self.config = model.config
-        self.num_gpus = 4
         self.offset = offset
 
     def bootstart(self, num_boots=100):
@@ -69,7 +68,7 @@ class Bootstrapping(nn.Module):
                         sample_N[tp, :, pop] = counter[pos]
 
             sample_N[0, :, :] = 1
-            buffer.append([sample_N, gpu_id % 2, epoch * self.num_gpus + gpu_id + self.offset])
+            buffer.append([sample_N, gpu_id % 4, epoch * self.num_gpus + gpu_id + self.offset])
         
         return buffer
 
@@ -78,9 +77,9 @@ class Bootstrapping(nn.Module):
         set_seed(42)
 
         self.config.gpu = gpu_id
-        self.config.learning_rate = 0.002
-        self.config.num_epochs = 3000
-        self.config.lrs_ms = [500 * i for i in range(1, 6)]
+        self.config.learning_rate = 0.05
+        self.config.num_epochs = 2000
+        self.config.lrs_ms = [300 * i for i in range(1, 7)]
 
         model = CloneTranModel(
             N=self.N.to(gpu_id), 
@@ -105,15 +104,8 @@ class Bootstrapping(nn.Module):
             model.ode_func = model.ode_func.to('cpu')
             model.input_N = model.input_N.to('cpu')
             model.oppo_L_nondia = model.oppo_L_nondia.to('cpu')
-            torch.save(model, f'./dyna_boots10tps/{model.model_id}.pt')
-    
-    def boot_validate(self, model):
-        pena_K1_nonL, _, pena_pop_zero, _ = model.get_matrix_K(K_type=model.config.K_type)
-        
-        if torch.sum(pena_K1_nonL) < 0.5:
-            return model
-        else:
-            return None
+            model.ode_func.supplement = [model.ode_func.supplement[i].to('cpu') for i in range(4)]
+            torch.save(model, f'./data/V5_Mingze_BG/models/bootstrapping_const/{model.model_id}.pt')
 
 class ProfileLikelihood(nn.Module):
     def __init__(self, model, model_path) -> None:
@@ -149,7 +141,7 @@ class ProfileLikelihood(nn.Module):
                         best_fit = self.K1[clone, pop1, pop2] if pop1 != pop2 else self.K2[clone, pop1]
                         print ('Profile parameter for clone {}, pop1 {}, pop2 {}, value of best fit {:.3f}'.format(clone, self.anno[pop1, 1], self.anno[pop2, 1], best_fit.item()))
 
-                        with multiprocessing.Pool(self.num_gpus) as pool:
+                        with multiprocessing.Pool(self.num_gpus + 1) as pool:
                             res = pool.map_async(
                                 self.profile_process, 
                                 self.fix_para_model(clone, pop1, pop2, best_fit)
@@ -168,10 +160,15 @@ class ProfileLikelihood(nn.Module):
 
     def fix_para_model(self, clone, pop1, pop2, best_fit):
         buffer = []
-        candidates = torch.linspace(best_fit.item() - 0.5, best_fit.item() + 0.5, self.num_gpus + 1)
+        if pop1 == pop2:
+            candidates = torch.linspace(best_fit.item() - 0.3, best_fit.item() + 0.3, self.num_gpus + 1)
+        if pop1 != pop2:
+            best_fit = torch.abs(best_fit)
+            candidates = torch.linspace(best_fit.item() - 0.3, best_fit.item() + 0.3, self.num_gpus + 1)
+            candidates = torch.clamp(candidates, 0.0, candidates[-1])
 
         for trail_id, candi in enumerate(candidates):
-            buffer.append([candi, trail_id % 3 + 1, clone, pop1, pop2, trail_id])
+            buffer.append([candi, trail_id % 4, clone, pop1, pop2, trail_id])
 
         return buffer
 
@@ -180,9 +177,9 @@ class ProfileLikelihood(nn.Module):
         set_seed(42)
 
         self.config.gpu = gpu_id
-        self.config.learning_rate = 0.002
-        self.config.num_epochs = 2000
-        self.config.lrs_ms = [500 * i for i in range(1, 4)]
+        self.config.learning_rate = 0.001
+        self.config.num_epochs = 1000
+        self.config.lrs_ms = [300 * i for i in range(1, 4)]
 
         supplement = [
             torch.ones((self.N.shape[1], self.N.shape[2], self.N.shape[2])), torch.zeros((self.N.shape[1], self.N.shape[2], self.N.shape[2])),
@@ -267,7 +264,7 @@ class ProfileLikelihood(nn.Module):
         res = dict(sorted(res.items()))
 
         t = list(res.keys())
-        interp = interpolate.interp1d(t, list(res.values()), kind='quadratic')
+        interp = interpolate.interp1d(t, list(res.values()), kind='linear')
         x = np.linspace(np.min(list(res.keys())), np.max(list(res.keys())), 500)
 
         plt.plot(t, interp(t), color='#2C6975', marker='*', linestyle='', markersize=7)

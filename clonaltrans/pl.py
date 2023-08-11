@@ -104,7 +104,6 @@ def grid_visual_interpolate(
     device: str = 'cpu',
     save: bool = False
 ):
-    assert model.config.include_var == variance
     fig, axes = plt.subplots(model.N.shape[1], model.N.shape[2], figsize=(40, 15), sharex=True)
 
     model = model.to(device)
@@ -119,13 +118,15 @@ def grid_visual_interpolate(
         data_values = [model.input_N, y_pred, None]
     
     if variance:
-        std = model.ode_func.std.detach().cpu().numpy()
+        std = torch.abs(model.ode_func.std).detach().cpu().numpy()
         lb, ub = y_pred.cpu().numpy() - std, y_pred.cpu().numpy() + std
         lb, ub = np.clip(lb, 0, np.max(lb)), np.clip(ub, 0, np.max(ub))
 
         if raw_data:
             lb, ub = np.power(lb, 1 / model.config.exponent), np.power(ub, 1 / model.config.exponent)
-    # print (lb[0].squeeze(), ub[0].squeeze())
+            # lb = np.power(y_pred, 1 / model.config.exponent) - np.power(std, 1 / model.config.exponent)
+            # ub = np.power(y_pred, 1 / model.config.exponent) + np.power(std, 1 / model.config.exponent)
+            # lb, ub = np.clip(lb, 0, None), np.clip(ub, 0, None)
 
     obs, pred, pred2 = data_convert(data_values)
     t_obs, t_pred, t_pred2 = data_convert([model.t_observed, t_smoothed, None])
@@ -187,7 +188,6 @@ def grid_visual_interpolate(
         plt.savefig(f'./figs/{save}.png', dpi=300, bbox_inches='tight')
 
 def transit_K(model, K, index=None, columns=None):
-    # K[np.abs(K) < 1e-4] = 0
     anno = pd.read_csv(os.path.join(model.data_dir, 'annotations.csv'))
     transition_K = pd.DataFrame(
         index=anno['populations'].values if index is None else index, 
@@ -196,14 +196,37 @@ def transit_K(model, K, index=None, columns=None):
     )
     return transition_K
 
+def compare_with_bg(model, K_type='const', save=False):
+    K_total = []
+
+    x = torch.linspace(0, int(model.t_observed[-1].item()), int(model.t_observed[-1].item() + 1)).to(model.config.gpu)
+    for i in range(len(x)):
+        K = model.get_matrix_K(K_type=K_type, eval=True, tpoint=x[i].round(decimals=1)).detach().cpu().numpy()
+        K_total.append(K)
+    
+    K_total = np.stack(K_total)
+    x = np.mean(K_total[:, :-1, :, :], axis=1).flatten()
+    y = K_total[:, -1, :, :].flatten()
+
+    spear = spearmanr(x, y)[0]
+    sns.scatterplot(x=x, y=y, s=25, c='lightcoral')
+    plt.plot([x.min(), x.max()], [x.min(), x.max()], linestyle="--", color="grey")
+    plt.title(f'Transition rates K')
+    plt.ylabel(f'All cells combined (Background)')
+    plt.xlabel(f'Mean of {K_total.shape[1] - 1} mega-clones')
+
+    if save is not False:
+        plt.savefig(f'./figs/{save}.png', dpi=300, bbox_inches='tight')
+
 def clone_specific_K(model, K_type='const', index_clone=0, tpoint=1.0, save=False):
     K = model.get_matrix_K(K_type=K_type, eval=True, tpoint=tpoint).detach().cpu().numpy()
     df = transit_K(model, K[index_clone])
-    # df = transit_K(model, np.mean(K[:-1], axis=0))
 
     fig, axes = plt.subplots(figsize=(12, 6))
     sns.heatmap(df, annot=True, linewidths=.5, cmap='coolwarm', ax=axes, vmin=-2, vmax=3)
-    plt.title(f'Transition Matrix for Clone {index_clone} Day {np.round(tpoint.cpu(), 1) if type(tpoint) == torch.Tensor else np.round(tpoint, 1)}')
+    title = f'Transition Matrix for Clone {index_clone} Day {np.round(tpoint.cpu(), 1) if type(tpoint) == torch.Tensor else np.round(tpoint, 1)}' \
+        if K_type == 'dynamic' else f'Transition Matrix for Clone {index_clone}'
+    plt.title(title)
 
     if save:
         try: t = np.round(tpoint, 1) 
@@ -229,7 +252,7 @@ def diff_K_between_clones(model, K_type='const', index_pop=0, tpoint=1.0, direct
 def rates_notin_paga(model, K_type='const', value=False, save=False):
     K_total = []
 
-    x = torch.linspace(0, int(model.t_observed[-1].item()), int(model.t_observed[-1].item() * 2 + 1)).to(model.config.gpu)
+    x = torch.linspace(0, int(model.t_observed[-1].item()), int(model.t_observed[-1].item() + 1)).to(model.config.gpu)
     for i in range(len(x)):
         K = model.get_matrix_K(K_type=K_type, eval=True, tpoint=x[i].round(decimals=1)).detach().cpu().numpy()
         K = K[np.where(model.oppo_L.cpu().numpy())]
@@ -247,7 +270,7 @@ def rates_notin_paga(model, K_type='const', value=False, save=False):
 def rates_in_paga(model, K_type='const', value=False, save=False):
     K_total = []
 
-    x = torch.linspace(0, int(model.t_observed[-1].item()), int(model.t_observed[-1].item() * 2 + 1)).to(model.config.gpu)
+    x = torch.linspace(0, int(model.t_observed[-1].item()), int(model.t_observed[-1].item() + 1)).to(model.config.gpu)
     for i in range(len(x)):
         K = model.get_matrix_K(K_type=K_type, eval=True, tpoint=x[i].round(decimals=1)).detach().cpu().numpy()
         K_total.append(K[np.where(np.broadcast_to(model.used_L.cpu().numpy(), K.shape))])
@@ -277,7 +300,7 @@ def rates_diagonal(model, K_type='const', tpoint=1.0):
 
 def clone_dynamic_K(model, K_type='const', index_clone=0, suffix=''): 
     from PIL import Image
-    x = torch.linspace(0, int(model.t_observed[-1].item()), int(model.t_observed[-1].item() * 2 + 1)).to(model.config.gpu)
+    x = torch.linspace(0, int(model.t_observed[-1].item()), int(model.t_observed[-1].item() + 1)).to(model.config.gpu)
     
     if index_clone == -1: title = 'BG'
     else: title = index_clone
@@ -293,11 +316,10 @@ def clone_dynamic_K(model, K_type='const', index_clone=0, suffix=''):
 def clone_dynamic_K_lines(model, index_clone=0, save=False):
     K_total = []
     t_obs = model.t_observed.cpu().numpy()
-    x = torch.linspace(0, int(model.t_observed[-1].item()), 100).to(model.config.gpu)
+    x = torch.linspace(0, int(model.t_observed[-1].item()), int(model.t_observed[-1].item() + 1)).to(model.config.gpu)
     
     for i in range(len(x)):
         K = model.get_matrix_K(K_type=model.config.K_type, eval=True, tpoint=x[i].round(decimals=1)).detach().cpu().numpy()
-        # K[np.abs(K) < 1e-4] = 0
         K_total.append(K)
     
     K_total = np.stack(K_total)
@@ -320,9 +342,10 @@ def clone_dynamic_K_lines(model, index_clone=0, save=False):
                     lw=4,
                 )
 
-                axes[count // cols][0].set_ylabel('Per capita growth rate')
-                axes[count // cols][count % cols].set_title('From {} to {}'.format(anno['populations'].values[i], anno['populations'].values[j]), fontsize=10)
+                axes[count // cols][0].set_ylabel('Per capita growth rate', fontsize=12)
+                axes[count // cols][count % cols].set_title('From {} to {}'.format(anno['populations'].values[i], anno['populations'].values[j]), fontsize=12)
                 axes[count // cols][count % cols].set_xticks(t_obs, labels=t_obs.astype(int), rotation=45)
+                # axes[count // cols][count % cols].set_ylim([np.min(K_total[:, index_clone]), np.max(K_total[:, index_clone])])
                 count += 1
     
     if save:
@@ -357,6 +380,7 @@ def parameter_range(model_list, K_type='const', tpoint=1.0, ref_model=None):
     total_K = []
     for model in pbar:
         model.input_N = model.input_N.to('cpu')
+        model.ode_func.supplement = [model.ode_func.supplement[i].to('cpu') for i in range(4)]
         tpoint = torch.tensor([tpoint]).to('cpu')
         total_K.append(model.get_matrix_K(K_type=K_type, eval=True, tpoint=tpoint).detach().cpu().numpy())
 
@@ -405,8 +429,7 @@ def trajectory_range(model_list, model_ref, raw_data=True):
     total_pred = []
 
     for idx, model in pbar:
-        model = model.to('cpu')
-        model.input_N = model.input_N.to('cpu')
+        model.ode_func.supplement = [model.ode_func.supplement[i].to('cpu') for i in range(4)]
         t_smoothed = torch.linspace(model.t_observed[0], model.t_observed[-1], 100).to('cpu')
         y_pred = model.eval_model(t_smoothed)
 
