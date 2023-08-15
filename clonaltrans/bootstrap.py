@@ -168,7 +168,7 @@ class ProfileLikelihood(nn.Module):
             candidates = torch.clamp(candidates, 0.0, candidates[-1])
 
         for trail_id, candi in enumerate(candidates):
-            buffer.append([candi, trail_id % 4, clone, pop1, pop2, trail_id])
+            buffer.append([candi, trail_id % 3 + 1, clone, pop1, pop2, trail_id])
 
         return buffer
 
@@ -255,7 +255,7 @@ class ProfileLikelihood(nn.Module):
         Ks = np.stack(Ks)
         cal_K = Ks[:, clone, pop1, pop2]
 
-        for idx, model in tqdm(enumerate(model_list)):
+        for idx, model in enumerate(model_list):
             likeli.append(self.get_likelihood(model, eps=eps))
         return cal_K, likeli
 
@@ -282,17 +282,22 @@ class ProfileLikelihood(nn.Module):
         plt.ylabel('Gaussian NLL')
         plt.title(f'From {pop1} to {pop2}', fontsize=10)
 
+        # if np.max(likeli) - np.min(likeli) < 1:
+        #     plt.ylim([194, 198])
+        # plt.ylim([likeli[15] - 1, likeli[15] + 3.8])
+
         plt.savefig(os.path.join(os.path.split(self.model_path)[0], '../..', f'figures/profilefigs/C{clone}_{pop1}_{pop2}.png'), dpi=300, bbox_inches='tight')
         plt.close()
 
-    def profile_all(self, ref_model, dir_models):
+    def profile_all(self, dir_models):
         for clone in range(self.N.shape[1]):
             for pop1 in range(self.N.shape[2]):
                 for pop2 in range(self.N.shape[2]):
 
-                    if self.paga[pop1, pop2] == 1:
+                    if self.paga[pop1, pop2] == 1 and clone == 1:
                         best_fit = self.K1[clone, pop1, pop2] if pop1 != pop2 else self.K2[clone, pop1]
                         print ('Profile parameter for clone {}, pop1 {}, pop2 {}, value of best fit {:.3f}'.format(clone, self.anno[pop1, 1], self.anno[pop2, 1], best_fit.item()))
 
+                        ref_model = torch.load(os.path.join(dir_models, f'C{clone}_P{pop1}_P{pop2}_T15.pt'))
                         cal_K, likeli = self.profile_validate(ref_model, clone, pop1, pop2, dir_models=dir_models)
                         self.plot_profile(cal_K, likeli, clone, self.anno[pop1, 1], self.anno[pop2, 1])

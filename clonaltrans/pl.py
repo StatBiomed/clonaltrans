@@ -10,6 +10,7 @@ import os
 import imageio
 from matplotlib.lines import Line2D
 from tqdm import tqdm
+import scipy.stats as stats
 
 MSE = nn.MSELoss(reduction='mean')
 SmoothL1 = nn.SmoothL1Loss(reduction='mean', beta=1.0)
@@ -491,6 +492,66 @@ def trajectory_ci(
     ]
     labels = ['Observations', 'Predictions', f'Q{boundary[0]} - Q{boundary[1]}', 'Q50']
     fig.legend(legend_elements, labels, loc='right', fontsize='x-large', bbox_to_anchor=(0.96, 0.5))
+
+    if save:
+        plt.savefig(f'./figs/{save}.png', dpi=300, bbox_inches='tight')
+
+def test_diffclones(
+    total_K, 
+    ref_model,
+    save: bool = False,
+):
+    paga = pd.read_csv(os.path.join(ref_model.data_dir, 'graph_table.csv'), index_col=0).astype(np.int32).values
+    np.fill_diagonal(paga, 1)
+
+    shapiro_res = np.zeros((ref_model.N.shape[1] - 1, ref_model.N.shape[2], ref_model.N.shape[2]))
+    overall_res = np.zeros((ref_model.N.shape[1] - 1, ref_model.N.shape[2], ref_model.N.shape[2]))
+    shapiro_res[shapiro_res == 0] = 'nan'
+    overall_res[overall_res == 0] = 'nan'
+
+    for clone in range(ref_model.N.shape[1] - 1):
+        for pop1 in range(ref_model.N.shape[2]):
+            for pop2 in range(ref_model.N.shape[2]):
+
+                if paga[pop1, pop2] == 1:
+                    can_K = total_K[:, clone, pop1, pop2]
+                    ref_K = total_K[:, -1, pop1, pop2]
+
+                    _, shapiro_p = stats.shapiro(can_K - ref_K)
+                    shapiro_res[clone, pop1, pop2] = shapiro_p
+
+                    if shapiro_p < 0.05:
+                        _, paired_p = stats.ttest_rel(can_K, ref_K) 
+                        overall_res[clone, pop1, pop2] = paired_p
+
+                    else:
+                        _, wilcox_p = stats.wilcoxon(can_K, ref_K)
+                        overall_res[clone, pop1, pop2] = wilcox_p
+    
+    return shapiro_res, overall_res
+
+def plot_diffclones(
+    overall_res,
+    ref_model,
+    save=False
+):
+    anno = pd.read_csv(os.path.join(ref_model.data_dir, 'annotations.csv'))
+    graph = pd.read_csv(os.path.join(ref_model.data_dir, 'graph_table.csv'), index_col=0)
+    np.fill_diagonal(graph.values, 1)
+
+    temp = overall_res.reshape((overall_res.shape[0], overall_res.shape[1] * overall_res.shape[1]))
+    nan_cols = np.isnan(temp).any(axis=0)
+    temp = temp[:, ~nan_cols]
+    
+    cols = []
+    for i in range(graph.shape[0]):
+        for j in range(graph.shape[1]):
+            if graph.values[i][j] != 0:
+                cols.append('{} -> {}'.format(anno['populations'].values[i], anno['populations'].values[j]))
+
+    fig, axes = plt.subplots(figsize=(12, 6))
+    df = pd.DataFrame(data=temp.T, index=cols, columns=[f'Clone {i} / BG' for i in range(overall_res.shape[0])])
+    sns.heatmap(df, annot=True, linewidths=.5, cmap='coolwarm')
 
     if save:
         plt.savefig(f'./figs/{save}.png', dpi=300, bbox_inches='tight')

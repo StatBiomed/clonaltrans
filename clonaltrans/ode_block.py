@@ -51,7 +51,7 @@ class ODEBlock(nn.Module):
             ]
 
         else:
-            self.std, self.supplement = Parameter(extras[0], requires_grad=True), extras[3]
+            self.std, self.supplement = Parameter(extras[0], requires_grad=False), extras[3]
 
         # self.K1_mask = Parameter(torch.triu(torch.ones((num_pops, num_pops)), diagonal=1).unsqueeze(0), requires_grad=False)
         self.K1_mask = Parameter(L.unsqueeze(0), requires_grad=False)
