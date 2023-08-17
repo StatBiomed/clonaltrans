@@ -3,6 +3,8 @@ import random
 import matplotlib.pyplot as plt
 import os
 import pandas as pd
+from matplotlib.lines import Line2D
+import seaborn as sns
 
 def gseed(seed):
     random.seed(seed)
@@ -32,14 +34,12 @@ def ginput_rates():
 
     return M, prol_rates, rates, number_diff
 
-def ginput_state(M):
+def ginput_state(M, num_pops):
     #* Cluster names, cell type id
-    cluster_names = np.arange(0, 5)
-    time_all = np.arange(0, 50.1, 0.1) 
-
+    cluster_idxs = np.arange(0, num_pops)
     #* Index of clusters corresponding to the reactions
-    vec_clusters = np.concatenate((M[:, 0], cluster_names)) 
-    return cluster_names, time_all, vec_clusters
+    vec_clusters = np.concatenate((M[:, 0], cluster_idxs)) 
+    return cluster_idxs, vec_clusters
 
 def gmodule(rates, number_cells, vec_clusters, t):
     #* the total propensity score & probability of each reaction
@@ -59,58 +59,58 @@ def gmodule(rates, number_cells, vec_clusters, t):
     idx_reaction = np.argmax(aux)
     return idx_reaction, t, delta_t
 
-def gillespie_main(seed, show=False):
+def gillespie_main(
+    seed, 
+    start: float = 0,
+    end: float = 50.1,
+    step: float = 0.1,
+    num_init_cells: int = 1,
+    show: bool = True
+):
     gseed(seed)
+    time_all = np.arange(start, end, step) 
 
     if os.path.exists(f'./gillespie/all_cells_{seed}.csv'):
         os.remove(f'./gillespie/all_cells_{seed}.csv')
-    if os.path.exists(f'./gillespie/occurred_rates_{seed}.csv'):
-        os.remove(f'./gillespie/occurred_rates_{seed}.csv')
+    if os.path.exists(f'./gillespie/summary_{seed}.csv'):
+        os.remove(f'./gillespie/summary_{seed}.csv')
+    if os.path.exists(f'./gillespie/occurred_{seed}.csv'):
+        os.remove(f'./gillespie/occurred_{seed}.csv')
 
     M, prol_rates, rates, number_diff = ginput_rates()
-    cluster_names, time_all, vec_clusters = ginput_state(M)
+    cluster_idxs, vec_clusters = ginput_state(M, len(prol_rates))
     occurred_reactions = np.zeros(len(rates))
 
-    all_cells = np.ones(len(time_all))
-    all_cells_pops = np.zeros((len(time_all), len(cluster_names)))
-    all_cells_pops[:, 0] = 1 
+    number_cells = np.zeros(len(cluster_idxs))
+    number_cells[0] = num_init_cells #* Start with one stem cell *#
+
+    all_cells = np.ones(len(time_all)) * np.sum(number_cells)
+    all_cells_pops = np.zeros((len(time_all), len(cluster_idxs)))
+    all_cells_pops[:, 0] = number_cells[0]
 
     old_index = 0
     t = 0 
-    iters = 0
-    number_cells = np.zeros(len(cluster_names))
-    number_cells[0] = 1 # Start with one stem cell
 
-    fig, axes = plt.subplots(1, 3, figsize=(18, 4))
-    fig.suptitle('Gillespie Summary')
+    summary = pd.DataFrame(columns=['Time', 'Increment t', 'Reaction ID', 'Index old', 'Index new'])
 
-    summary = pd.DataFrame(columns=['Time', 'Increment t', 'Reaction ID', 'Outbound', 'Inbound', 'Index old', 'Index new'])
-
-    list_t, list_delta_t, list_number_cells = [], [], []
+    list_number_cells = [list(number_cells)]
     while np.sum(number_cells) > 0 and t <= time_all[-1]:
         idx_reaction, t, delta_t = gmodule(rates, number_cells, vec_clusters, t)
         occurred_reactions[idx_reaction] += 1
 
         if idx_reaction >= number_diff:
-            outbound_cell = idx_reaction - number_diff
-            inbound_cell = idx_reaction - number_diff
-
             if prol_rates[idx_reaction - number_diff] > 0:
                 number_cells[idx_reaction - number_diff] += 1
             else:
                 number_cells[idx_reaction - number_diff] -= 1
             
         else:
-            outbound_cell = M[idx_reaction, 0]
-            inbound_cell = M[idx_reaction, 1]
             number_cells[M[idx_reaction, 0]] -= 1
             number_cells[M[idx_reaction, 1]] += 1
 
-        list_t.append(t)
-        list_delta_t.append(delta_t)
         list_number_cells.append(list(number_cells))
-
         old_index_temp = old_index
+
         if t <= time_all[-1]:
             new_index = np.argmin(np.abs(time_all - t))
             all_cells[new_index:] = np.sum(number_cells)
@@ -119,119 +119,350 @@ def gillespie_main(seed, show=False):
             
         else:
             new_index = len(time_all)
-            all_cells[-1] = np.sum(number_cells)
-            all_cells_pops[-1, :] = number_cells
+            # all_cells[-1] = np.sum(number_cells)
+            # all_cells_pops[-1, :] = number_cells
 
         row = {
             'Time': t, 
             'Increment t': delta_t,
             'Reaction ID': idx_reaction, 
-            'Outbound': outbound_cell, 
-            'Inbound': inbound_cell, 
             'Index old': old_index_temp, 
             'Index new': new_index
         }
         summary.loc[len(summary)] = row
-        iters += 1
 
+    all_cells = np.concatenate([all_cells_pops, all_cells.reshape(-1, 1)], axis=1)
+    cols = [f'Cluster {i}' for i in cluster_idxs]
+    cols.append('Total cells')
+
+    cell_time = pd.DataFrame(
+        columns=cols,
+        index=range(all_cells.shape[0]),
+        data=all_cells
+    )
+    cell_time.to_csv(f'./gillespie/all_cells_{seed}.csv')
     summary.to_csv(f'./gillespie/summary_{seed}.csv')
-    all_cells = np.concatenate([all_cells.reshape(-1, 1), all_cells_pops], axis=1)
-    with open(f'./gillespie/all_cells_{seed}.csv', 'a') as f1:
-        np.savetxt(f1, all_cells, delimiter=',', fmt='%.2e')
+    
+    with open(f'./gillespie/occurred_{seed}.csv', 'w') as f:
+        np.savetxt(f, occurred_reactions)
 
     if show:
-        gfig_config(axes, list_t, list_delta_t, np.stack(list_number_cells))
+        fig, axes = plt.subplots(1, 3, figsize=(18, 4))
+        fig.suptitle('Gillespie Summary')
+        gplot_summary(axes, summary, np.stack(list_number_cells))
         plt.show()
 
-def gfig_config(axes, t, delta_t, number_cells):
-    axes[0].plot(t, np.sum(number_cells, axis=1), 'o', color='lightcoral')
+def gplot_summary(axes, summary, list_number_cells):
+    time = np.concatenate(([0.], summary['Time'].values))
+    axes[0].plot(time, np.sum(list_number_cells, axis=1), 'o', color='lightcoral')
     axes[0].set_xlabel('Experimental time course ($t$)')
     axes[0].set_ylabel('Total # of cells')
 
-    axes[1].plot(t, delta_t, 'x', color='#2C6975')
+    increment = np.concatenate(([0.], summary['Increment t'].values))
+    axes[1].plot(time, increment, 'x', color='#2C6975')
     axes[1].set_xlabel('Experimental time course ($t$)')
     axes[1].set_ylabel(f'Increment $ \Delta t$')
 
-    for cell_id in range(number_cells.shape[1]):
-        axes[2].plot(t, number_cells[:, cell_id], label=f'Cell {cell_id}')
+    for cell_id in range(list_number_cells.shape[1]):
+        axes[2].plot(time, list_number_cells[:, cell_id], label=f'Cell {cell_id}')
     axes[2].set_xlabel('Experimental time course ($t$)')
     axes[2].set_ylabel('# of cells per population')
     plt.legend()
 
-def gvec_tree(vec_tree, t, idx_reaction, num_cell):
-    vec_tree[1, :, :] = vec_tree[0, :, :]
-    vec_tree[1, :, 0] = t
-    vec_tree[1, :, 1] = idx_reaction
-    vec_tree[1, :, 2] = num_cell
-    vec_tree[1, 0, num_cell + 2] = 0
-    return vec_tree
+def generation_proliferation(pop1=0, pop2=0):
+    kk_pop1, kk_pop2 = 0, 0
+    wt_pop1, wt_pop2 = [], []
 
-def gvec_pool(vec_tree, paras):
-    pool = np.where(
-        (np.squeeze(vec_tree[0, 0, 3:]) > 0) & 
-        (np.squeeze(vec_tree[0, 1, 3:]) == paras)
-    )
-    num_cell = pool[np.random.randint(1, len(pool) + 1)]
-    return num_cell
+    for csvs in os.listdir('./gillespie'):
+        if csvs.startswith('all_cells_'):
+            all_cells = pd.read_csv(os.path.join('./gillespie', csvs), index_col=0)
 
-def gillespie_trees(seed):
-    gseed(seed)
-    M, prol_rates, rates, number_diff = ginput_rates()
-    cluster_names, time_all, vec_clusters = ginput_state(M)
+            if np.sum(all_cells.values[:, pop1]) > 0:
+                kk_pop1 += 1
+                wt_pop1.append(np.where(all_cells.values[:, pop1] > 0)[0][0])
 
-    jmax = 1
+            if np.sum(all_cells.values[:, pop2]) > 0:
+                kk_pop2 += 1 
+                wt_pop2.append(np.where(all_cells.values[:, pop2] > 0)[0][0])
+    
+    print (f'Mean1: {np.mean(wt_pop1)}', f'Mean2: {np.mean(wt_pop2)}')
+    print (f'Length1: {len(wt_pop1)}', f'Length2: {len(wt_pop2)}') 
 
-    #? meaning of j and for loop?
-    for j in range(jmax):
-        t = 0
-        iters = 0
-        number_cells = np.zeros(len(cluster_names))
-        number_cells[0] = 1
+def gillespie_analysis():
+    time_all = np.arange(0, 50.1, 0.1)
+    number_diff = 4
 
-        #? meaning of 1 2 4 and vec_tree?
-        vec_tree = np.zeros((1, 2, 4))
-        vec_tree[0, 0, :] = [0, 0, 1, 1]
-        vec_tree[0, 1, :] = [0, 0, 1, 1]
+    across_seeds = []
+    across_occur = []
 
-        while np.sum(number_cells) > 0 and t <= time_all[-1]:
-            idx_reaction, t, delta_t = gmodule(rates, number_cells, vec_clusters, t)
+    for csvs in os.listdir('./gillespie'):
+        if csvs.startswith('all_cells_'):
+            all_cells = pd.read_csv(os.path.join('./gillespie', csvs), index_col=0)
+            across_seeds.append(all_cells.values)
 
-            if idx_reaction >= number_diff:
-                if prol_rates[idx_reaction - number_diff] > 0:
-                    number_cells[idx_reaction - number_diff] += 1
-                    num_cell = gvec_pool(vec_tree, (idx_reaction - number_diff))
+        if csvs.startswith('occurred_'):
+            summary = pd.read_csv(os.path.join('./gillespie', csvs), header=None)
+            across_occur.append(list(summary.values.squeeze()))
+        
+    across_seeds = np.stack(across_seeds) #* (seeds, time points, clusters)
+    across_occur = np.stack(across_occur) #* (seeds, num_reactions)
 
-                    vec_tree[0, :, -2:] = np.zeros((2, 2))
-                    vec_tree = gvec_tree(vec_tree, t, idx_reaction, num_cell)
-                    vec_tree[1, :, -2:] = np.array([[1, 1], [idx_reaction - number_diff, idx_reaction - number_diff]])
+    mean_all = np.mean(across_seeds[:, :, -1], axis=0)
+    mean_pop = np.mean(across_seeds[:, :, :-1], axis=0)
 
-                else:
-                    number_cells[idx_reaction - number_diff] -= 1
-                    num_cell = gvec_pool(vec_tree, (idx_reaction - number_diff))
+    fig, axes = plt.subplots(1, 1)
+    axes.plot(time_all, across_seeds[:, :, -1].T, '#2C6975', linewidth=1) 
+    axes.plot(time_all, mean_all, 'lightcoral', linewidth=2)
+    axes.set_yscale('log')
+    axes.set_xlabel('Experimental time')
+    axes.set_ylabel('# cells')
+    axes.set_xlim([time_all[0], time_all[-1]])
+    legend_elements = [Line2D([0], [0], color='#2C6975', lw=1), Line2D([0], [0], color='lightcoral', lw=2)]
+    labels = ['Mean total cells per seed', 'Mean total cells of all seeds']
+    plt.legend(legend_elements, labels)
 
-                    vec_tree = gvec_tree(vec_tree, t, idx_reaction, num_cell)
+    fig, axes = plt.subplots(1, 1)
+    sns.histplot(across_seeds[:, :, -1][:, -1], bins=30)
+    axes.set_title(f'Mean cells of all seeds at $t$[-1] ' + str(np.mean(across_seeds[:, :, -1][:, -1])))
+    axes.set_xlabel(f'Mean cells per seed at $t$[-1]')
 
-            else:
-                number_cells[M[idx_reaction, 0]] -= 1
-                number_cells[M[idx_reaction, 1]] += 1
-                num_cell = gvec_pool(vec_tree, M[idx_reaction, 0])
+    num_clusters = across_seeds[:, :, :-1].shape[2]
+    fig, axes = plt.subplots(1, num_clusters, figsize=(24, 6))
+    for cid in range(num_clusters):
+        mm = np.mean(across_seeds[:, :, :-1][:, -1, cid])
+        sns.histplot(across_seeds[:, :, :-1][:, -1, cid], ax=axes[cid])
+        axes[cid].set_title('Cluster ' + str(cid) + ': ' + str(mm))
+        axes[cid].set_xlabel(f'Mean cells per seed at $t$[-1]')
 
-                vec_tree[0, :, :] = np.zeros((2, 1))
-                vec_tree = gvec_tree(vec_tree, t, idx_reaction, num_cell)
-                vec_tree[1, :, -1] = np.array([1, M[idx_reaction, 1]])
+    colors = ['black','r','b','y','g']
+    mat_clones = np.sum(across_seeds[:, :, :-1] > 0, axis=0).squeeze()
 
-            st = np.squeeze(vec_tree[-1, :, :])
-            vec_tree = vec_tree[1:, :, :]
+    fig, axes = plt.subplots(1, num_clusters, figsize=(24, 6))
+    for cid in range(num_clusters):
+        col = colors[cid]
+        axes[cid].plot(time_all, mat_clones[:, cid], color=col, linewidth=2, label=cid)
+        axes[cid].set_xlim(0, time_all[-1]) 
+        axes[cid].set_ylim(np.min(mat_clones[:, cid]), np.max(mat_clones[:, cid]))
+        axes[cid].set_title('Cluster ' + str(cid))
+        axes[cid].set_ylabel('# different clones')
+        axes[cid].set_xlabel('Experimental time')
 
-            np.savetxt(f'./gillespie/store_{seed}.txt', st)
+    mat_clones2 = np.sum(across_seeds[:, :, -1] > 0, axis=0)
 
-            print (
-                f'iters: {iters}', 
-                f't: {t:.3f}', 
-                f'react_id: {idx_reaction}', 
-                f'# cell: {number_cells}', 
-                sep='\t'
-            )
-            iters += 1
+    fig, axes = plt.subplots(1, 1) 
+    axes.plot(time_all, mat_clones2, color='#2C6975', linewidth=2)
+    axes.set_xlim(0, time_all[-1]) 
+    axes.set_ylim(np.min(mat_clones2), np.max(mat_clones2)) 
+    axes.set_title('All clusters combined')
+    axes.set_ylabel('# different clones')
+    axes.set_xlabel('Experimental time')
 
-    plt.show()
+    fig, axes = plt.subplots(1, num_clusters, figsize=(24, 6))
+    for cid in range(num_clusters):
+        col = colors[cid]
+        axes[cid].plot(time_all, mean_pop[:, cid], col)
+        axes[cid].set_xlim(0, time_all[-1]) 
+        axes[cid].set_ylim(np.min(mean_pop[:, cid]), np.max(mean_pop[:, cid]))
+        axes[cid].set_title('Cluster ' + str(cid))
+        axes[cid].set_ylabel('Mean cells across seeds')
+        axes[cid].set_xlabel('Experimental time')
+
+    store_diff = np.sum(across_occur[:, :number_diff], axis=1).squeeze() #* (seeds, )
+    store_prol = np.sum(across_occur[:, number_diff:], axis=1).squeeze()
+    store_pops = np.sum(across_occur[:, :number_diff])
+
+    # fig, axes = plt.subplots(1, num_clusters, figsize=(24, 6))
+    # for cid in range(num_clusters):
+    #     col = colors[cid]
+    #     sns.histplot(store_pops[:, cid], color=col, ax=axes[cid])
+    #     axes[cid].set_title('Cluster ' + str(cid))
+    #     axes[cid].set_ylabel('Mean cells across seeds')
+    #     axes[cid].set_xlabel('# of occured times')
+
+    fig, axes = plt.subplots(1, 2, figsize=(9, 3))
+    sns.histplot(store_diff, ax=axes[0], bins=30)
+    axes[0].set_xlabel('total # of differentiations')
+    axes[0].set_ylabel('# of seed trails')
+    sns.histplot(store_prol, ax=axes[1], bins=30)
+    axes[1].set_xlabel('total # of proliferations')
+    axes[1].set_ylabel('# of seed trails')
+
+    fig, axes = plt.subplots(3, 3, figsize=(14, 18))
+    for j in range(across_occur.shape[1]):
+        sns.histplot(across_occur[:, j], ax=axes[j // 3, j % 3])
+        axes[j // 3, j % 3].set_yscale('log')
+        axes[j // 3, j % 3].set_title('Reaction ID: ' + str(j))
+        axes[j // 3, j % 3].set_ylabel('# of seed trails')
+        axes[j // 3, j % 3].set_xlabel('# of occurred times')
+
+def temp2():
+    import numpy as np
+
+    # Sample data 
+    tree = np.loadtxt('./trees/store_134.txt')
+
+    # Preallocate matrices
+    M = np.zeros((9,2), dtype=int)
+    c = np.zeros((tree.shape[1] - 4, tree.shape[0]))  
+    p = np.zeros(tree.shape[1] - 3)
+
+    # Populate M
+    M[0,:] = [1, 2]
+    M[1,:] = [1, 3] 
+    M[2,:] = [2, 4]
+    M[3,:] = [3, 5]
+    M[4,:] = [1, 1]
+    M[5,:] = [2, 2]
+    M[6,:] = [3, 3]
+    M[7,:] = [4, 4]
+    M[8,:] = [5, 5]
+
+    # Loop through tree
+    for sco in range(2, tree.shape[1] - 3):
+    
+            cell = sco
+    temp = sco
+    
+    while cell > 1:
+    
+        min_temp = np.where(tree[0::2, 2+cell])[0][0] + 1
+        r = tree[min_temp, 1]
+        
+        if r >= 5:
+            p[sco] += 1
+        
+        cell = tree[min_temp, 2]
+
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    # Colors 
+    colors = ['0.5','r','b','y','g']
+
+    # Plot empty circle 
+    fig, ax = plt.subplots(1, 1, num=1)
+    ax.plot(0,0,'o', color=[0.5,0.5,0.5], markerfacecolor=[0.5,0.5,0.5], markersize=20)
+
+    # Initialize arrays
+    centres = []
+    times = []
+    offset = 2**(max(p)-1)
+
+    for j in range(0, tree.shape[0], 2):
+
+        kk = tree[j, 2]
+    col = colors[int(M[int(tree[j, 1]), 1])-1]
+    
+    if (tree[j, 1] >= 5) and (tree[j, 1] <= 7):
+        
+        centres.extend([centres[kk]-offset, centres[kk]+offset]) 
+        times.extend([tree[j, 0], tree[j, 0]])
+
+    # Plotting code goes here...
+
+    for j in range(0, tree.shape[0], 2):
+
+        kk = tree[j, 2]
+    col = colors[int(M[int(tree[j, 1]), 1])-1]
+
+    if (tree[j, 1] >= 5) and (tree[j, 1] <= 7):
+        
+        if j==0:
+            ax.plot([centres[kk], centres[-1]], [0, tree[j,0]], color='k')
+            ax.plot([centres[kk], centres[-2]], [0, tree[j,0]], color='k')
+        else:
+            ax.plot([centres[kk], centres[-1]], [times[kk], tree[j,0]], color='k')
+            ax.plot([centres[kk], centres[-2]], [times[kk], tree[j,0]], color='k')
+
+        offset = offset/2
+
+        ax.plot(centres[-2], tree[j,0], 'o', color=col, markerfacecolor=col, markersize=20)
+        ax.plot(centres[-1], tree[j,0], 'o', color=col, markerfacecolor=col, markersize=20)
+
+    elif (tree[j,1] >= 8):
+
+        if j==0: 
+            ax.plot([centres[kk], centres[kk]], [0, tree[j,0]], color='k')
+        else:
+            ax.plot([centres[kk], centres[kk]], [times[kk], tree[j,0]], color='k')
+    
+            ax.plot(centres[kk], tree[j,0], 'x', color='k', markerfacecolor='k', markersize=20)
+
+    else:
+        centres.append(centres[kk])
+    times.append(tree[j,0])
+
+    for j in range(0, tree.shape[0], 2):
+
+        if j==0:
+            ax.plot([centres[kk], centres[-1]], [0, tree[j,0]], color='k')
+        else:
+            ax.plot([centres[kk], centres[-1]], [times[kk], tree[j,0]], color='k')
+    
+    ax.plot(centres[-1], tree[j,0], 'o', color=col, markerfacecolor=col, markersize=20)
+
+    # Horizontal lines  
+    # qq = min(centres)
+    # for j2 in range(0, tree.shape[0], 2):
+    #   ax.plot([qq-1, -qq+1], [tree[j2,0], tree[j2,0]], color='k', linestyle='--')
+
+    ax.set_yticks([])
+    ax.set_yticklabels([])
+
+    ax.set_xticks([])
+    ax.set_xticklabels([])
+
+    ax.set_ylim([-5, tree[-1,0] + 5])
+    ax.set_ybound(upper=0)
+
+    if min(centres) == 0:
+        qq = 0.1
+    else:
+        qq = 1/max(np.abs(centres))*3
+
+    # Set x limits
+    ax.set_xlim([min(centres)-qq, max(centres)+qq])
+
+    # Figure export
+    fig.set_size_inches(8.5, 11)
+    fig.savefig('./figures_paper/tree_{}.eps'.format(tt), 
+                format='eps',
+                dpi=1200,
+                bbox_inches='tight')
+
+    plt.close(fig)
+
+def temp():
+    kk = 0
+    for sc in index_first:
+    
+        store_index = [sc+1, sc]
+    i = sc-1
+    
+    while i>1:
+    
+        cell = vec_tree[i+1,1,3]  
+        index = np.where(vec_tree[1:i-1,1,cell+3] == 0)[-1][-1] + 1
+    
+        store_index.append(index)
+        
+        i = index
+            
+    temp = vec_tree[store_index[2:]+1,1,2]
+    
+    temp2 = np.zeros(9)
+    for jk in range(9):
+        temp2[jk] = np.sum(temp == jk) 
+    
+    store_rates_first[kk,:] = [vec_unique[kk], temp2]
+    
+    store_prol_first[kk,:] = [vec_unique[kk], np.sum(temp >= 5)]
+    store_dif_first[kk,:] = [vec_unique[kk], np.sum(temp <= 4)]
+    
+    kk += 1
+    
+    for pop in range(1,6):
+
+        store_rates_first_mean[pop,:] = [seed, np.mean(store_rates_first[store_rates_first[:,0] == pop,1:], axis=0)]
+    store_prol_first_mean[pop,:] = [seed, np.mean(store_prol_first[store_prol_first[:,0] == pop,1:], axis=0)]  
+    store_dif_first_mean[pop,:] = [seed, np.mean(store_dif_first[store_dif_first[:,0] == pop,1:], axis=0)]
