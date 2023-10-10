@@ -1,4 +1,4 @@
-from scipy.stats import spearmanr
+from scipy.stats import spearmanr, pearsonr
 from torch import nn
 import matplotlib.pyplot as plt
 import math
@@ -105,7 +105,9 @@ def grid_visual_interpolate(
     device: str = 'cpu',
     save: bool = False
 ):
-    fig, axes = plt.subplots(model.N.shape[1], model.N.shape[2], figsize=(40, 15), sharex=True)
+    # model.N = model.N[:, :2, :]
+    fig, axes = plt.subplots(model.N.shape[1], model.N.shape[2], figsize=(45, 15), sharex=True)
+    # fig, axes = plt.subplots(model.N.shape[1], model.N.shape[2], figsize=(45, 5), sharex=True)
 
     model = model.to(device)
     model.input_N = model.input_N.to(device)
@@ -153,9 +155,10 @@ def grid_visual_interpolate(
             plot_gvi(pred, axes, row, col, t_pred, data_names[1], 'lightcoral', size_samples)
             plot_gvi(obs, axes, row, col, t_obs, data_names[0], '#2C6975', size_samples)
     
-            axes[0][col].set_title(anno['populations'][col])
-            axes[row][0].set_ylabel(anno['clones'][row])
+            axes[0][col].set_title(anno['populations'][col], fontsize=15)
+            axes[row][0].set_ylabel(anno['clones'][row], fontsize=15)
             axes[row][col].set_xticks(t_obs, labels=t_obs.astype(int), rotation=45)
+            # axes[row][col].set_yticks([])
             axes[row][col].ticklabel_format(axis='y', style='sci', scilimits=(0, 4))
 
     fig.subplots_adjust(hspace=0.5)
@@ -183,10 +186,10 @@ def grid_visual_interpolate(
         legend_elements.append(Line2D([0], [0], color='lightskyblue', lw=4))
         labels.append('mean $\pm$ 1 std')
 
-    fig.legend(legend_elements, labels, loc='right', fontsize='x-large', bbox_to_anchor=(0.975, 0.5))
+    fig.legend(legend_elements, labels, loc='right', fontsize=15, bbox_to_anchor=(0.97, 0.5))
 
     if save:
-        plt.savefig(f'./figs/{save}.png', dpi=300, bbox_inches='tight')
+        plt.savefig(f'./{save}.svg', dpi=600, bbox_inches='tight', transparent=False, facecolor='white')
 
 def transit_K(model, K, index=None, columns=None):
     anno = pd.read_csv(os.path.join(model.data_dir, 'annotations.csv'))
@@ -201,39 +204,48 @@ def compare_with_bg(model, K_type='const', save=False):
     K_total = []
 
     x = torch.linspace(0, int(model.t_observed[-1].item()), int(model.t_observed[-1].item() + 1)).to(model.config.gpu)
+    # x = torch.tensor([0.0, 2.0, 4.0, 6.0]).to(model.config.gpu)
     for i in range(len(x)):
-        K = model.get_matrix_K(K_type=K_type, eval=True, tpoint=x[i].round(decimals=1)).detach().cpu().numpy()
+        K = model.get_matrix_K(K_type=K_type, eval=True, tpoint=x[i].round()).detach().cpu().numpy()
         K_total.append(K)
     
     K_total = np.stack(K_total)
     x = np.mean(K_total[:, :-1, :, :], axis=1).flatten()
     y = K_total[:, -1, :, :].flatten()
 
-    spear = spearmanr(x, y)[0]
-    sns.scatterplot(x=x, y=y, s=25, c='lightcoral')
+    corr, p_value = pearsonr(x, y)
+    ax = sns.scatterplot(x=y, y=x, s=25, c='#C5720B')
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+
     plt.plot([x.min(), x.max()], [x.min(), x.max()], linestyle="--", color="grey")
-    plt.title(f'Transition rates K')
-    plt.ylabel(f'All cells combined (Background)')
-    plt.xlabel(f'Mean of {K_total.shape[1] - 1} mega-clones')
+    plt.title(f'Comparison of rates', fontsize=13)
+    plt.xlabel(f'All cells (incl. filtered at pre-processing)', fontsize=13)
+    plt.ylabel(f'Mean of {K_total.shape[1] - 1} meta-clones', fontsize=13)
+    plt.text(-1, 3, f'$Pearson \; r = {corr:.3f}$', fontsize=13)
+    # plt.yticks([-1, 0, 1, 2, 3], [-1, 0, 1, 2, 3], fontsize=13)
+    # plt.xticks([-1, 0, 1, 2, 3], [-1, 0, 1, 2, 3], fontsize=13)
 
     if save is not False:
-        plt.savefig(f'./figs/{save}.png', dpi=300, bbox_inches='tight')
+        plt.savefig(f'./{save}.svg', dpi=600, bbox_inches='tight', transparent=False, facecolor='white')
 
 def clone_specific_K(model, K_type='const', index_clone=0, tpoint=1.0, save=False):
     K = model.get_matrix_K(K_type=K_type, eval=True, tpoint=tpoint).detach().cpu().numpy()
     df = transit_K(model, K[index_clone])
 
-    fig, axes = plt.subplots(figsize=(12, 6))
-    sns.heatmap(df, annot=True, linewidths=.5, cmap='coolwarm', ax=axes, vmin=-2, vmax=3)
+    fig, axes = plt.subplots(1, 1, figsize=(12, 6))
+    ax = sns.heatmap(df, annot=True, linewidths=.5, cmap='coolwarm', ax=axes, vmin=-2, vmax=3)
     title = f'Transition Matrix for Clone {index_clone} Day {np.round(tpoint.cpu(), 1) if type(tpoint) == torch.Tensor else np.round(tpoint, 1)}' \
-        if K_type == 'dynamic' else f'Transition Matrix for Clone {index_clone}'
-    plt.title(title)
+        if K_type == 'dynamic' else f'Transition rates for clone {index_clone}'
+    plt.title(title, fontsize=13)
+    # axes.set_xlabel(df.columns, fontsize=13)
+    # axes.set_ylabel(df.columns, fontsize=13)
 
     if save:
         try: t = np.round(tpoint, 1) 
         except: t = np.round(tpoint.cpu().numpy(), 1)
-        plt.savefig(f'./figs/temp_{t}.png', dpi=300, bbox_inches='tight', transparent=False, facecolor='white')
-        plt.close()
+        plt.savefig(f'./temp_{t}.svg', dpi=600, bbox_inches='tight', transparent=False, facecolor='white')
+        # plt.close()
 
 def diff_K_between_clones(model, K_type='const', index_pop=0, tpoint=1.0, direction='outbound'):
     K = model.get_matrix_K(K_type=K_type, eval=True, tpoint=tpoint).detach().cpu().numpy()
@@ -263,7 +275,7 @@ def rates_notin_paga(model, K_type='const', value=False, save=False):
     plt.title(f'Rates not in PAGA that are non-zero')
 
     if save:
-        plt.savefig(f'./figs/{save}.png', dpi=300, bbox_inches='tight')
+        plt.savefig(f'./figs/{save}.png', dpi=300, bbox_inches='tight', transparent=False, facecolor='white')
 
     if value:
         return np.stack(K_total)
@@ -272,18 +284,26 @@ def rates_in_paga(model, K_type='const', value=False, save=False):
     K_total = []
 
     x = torch.linspace(0, int(model.t_observed[-1].item()), int(model.t_observed[-1].item() + 1)).to(model.config.gpu)
+    # x = torch.linspace(0, 17, 18).to(model.config.gpu)
     for i in range(len(x)):
-        K = model.get_matrix_K(K_type=K_type, eval=True, tpoint=x[i].round(decimals=1)).detach().cpu().numpy()
+        K = model.get_matrix_K(K_type=K_type, eval=True, tpoint=x[i].round()).detach().cpu().numpy()
         K_total.append(K[np.where(np.broadcast_to(model.used_L.cpu().numpy(), K.shape))])
     
     if K_type == 'const':
         K_total = K_total[0]
 
-    sns.histplot(np.stack(K_total).flatten(), bins=50)
-    plt.title(f'Rates in PAGA')
+    ax = sns.histplot(np.stack(K_total).flatten(), bins=50)
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    
+    # plt.xticks([-8, -4, -6, -2, 0, 2, 4, 6, 8, 10], [-8, -4, -6, -2, 0, 2, 4, 6, 8, 10], fontsize=13)
+    # plt.yticks([0, 10, 20, 30, 40], [0, 10, 20, 30, 40], fontsize=13)
+    plt.ylabel('Count', fontsize=13)
+    plt.xlabel(f'Proliferation & Differentiation rates of {model.N.shape[1] - 1} meta-clones', fontsize=13)
+    # plt.text(1.5, 33, f'Each meta-clone has:\n11 proliferation & \n11 differentiations rates', fontsize=13)
 
     if save:
-        plt.savefig(f'./figs/{save}.png', dpi=300, bbox_inches='tight')
+        plt.savefig(f'./{save}.svg', dpi=600, bbox_inches='tight', transparent=False, facecolor='white')
 
     if value:
         return np.stack(K_total)
@@ -320,7 +340,7 @@ def clone_dynamic_K_lines(model, index_clone=0, save=False):
     x = torch.linspace(0, int(model.t_observed[-1].item()), int(model.t_observed[-1].item() + 1)).to(model.config.gpu)
     
     for i in range(len(x)):
-        K = model.get_matrix_K(K_type=model.config.K_type, eval=True, tpoint=x[i].round(decimals=1)).detach().cpu().numpy()
+        K = model.get_matrix_K(K_type=model.config.K_type, eval=True, tpoint=x[i].round()).detach().cpu().numpy()
         K_total.append(K)
     
     K_total = np.stack(K_total)
@@ -403,14 +423,19 @@ def parameter_ci(
     sampled_ks = total_K[:, index_clone, pop_1, pop_2]
     lb, ub = np.percentile(sampled_ks, 2.5), np.percentile(sampled_ks, 97.5)
 
+    # sns.set(rc={'figure.figsize':(6, 4)})
     g = sns.displot(sampled_ks, bins=int(len(sampled_ks) / 4), kde=True, color='#929591')
-    g.fig.set_dpi(300)
+    g.fig.set_dpi(600)
 
     plt.axvline(ref_K[index_clone, pop_1, pop_2], linestyle='--', color='lightcoral')
     plt.axvline(lb, linestyle='--', color='#069AF3')
     plt.axvline(ub, linestyle='--', color='#069AF3')
-    plt.title(f'Rate distributions of Clone {index_clone}', fontsize=10)
-    plt.xlabel('From {} to {}'.format(anno['populations'].values[pop_1], anno['populations'].values[pop_2]), fontsize=10)
+    # plt.title(f'Rate distributions of Clone {index_clone}', fontsize=12)
+    # plt.xlabel('From {} to {}'.format(anno['populations'].values[pop_1], anno['populations'].values[pop_2]), fontsize=10)
+    plt.ylabel('Count', fontsize=14)
+    plt.yticks([])
+    plt.xticks(fontsize=14)
+    plt.xlabel('Distribution of Rates', fontsize=14)
 
     #* (Original) (Bootstrapping {len(model_list)})
     legend_elements = [
@@ -418,10 +443,10 @@ def parameter_ci(
         Line2D([0], [0], linestyle='--', color='#069AF3', lw=2), 
     ]
     labels = ['Fitted', f'95% CI']
-    plt.legend(legend_elements, labels, loc='best', fontsize=10)
+    # plt.legend(legend_elements, labels, loc='best', fontsize=12)
 
     if save:
-        plt.savefig(f'./figs/{save}.png', dpi=300, bbox_inches='tight', transparent=False, facecolor='white')
+        plt.savefig(f'./{save}.svg', dpi=600, bbox_inches='tight', transparent=False, facecolor='white')
         plt.close()
 
 def trajectory_range(model_list, model_ref, raw_data=True):
@@ -496,37 +521,41 @@ def trajectory_ci(
     if save:
         plt.savefig(f'./figs/{save}.png', dpi=300, bbox_inches='tight')
 
-def test_diffclones(
-    total_K, 
-    ref_model,
-    save: bool = False,
-):
+def test_diffclones(total_K, ref_model):
     paga = pd.read_csv(os.path.join(ref_model.data_dir, 'graph_table.csv'), index_col=0).astype(np.int32).values
     np.fill_diagonal(paga, 1)
 
-    shapiro_res = np.zeros((ref_model.N.shape[1] - 1, ref_model.N.shape[2], ref_model.N.shape[2]))
-    overall_res = np.zeros((ref_model.N.shape[1] - 1, ref_model.N.shape[2], ref_model.N.shape[2]))
+    shapiro_res = np.zeros((15, ref_model.N.shape[2], ref_model.N.shape[2]))
+    overall_res = np.zeros((15, ref_model.N.shape[2], ref_model.N.shape[2]))
     shapiro_res[shapiro_res == 0] = 'nan'
     overall_res[overall_res == 0] = 'nan'
 
-    for clone in range(ref_model.N.shape[1] - 1):
-        for pop1 in range(ref_model.N.shape[2]):
-            for pop2 in range(ref_model.N.shape[2]):
+    count = 0
+    for idx_c1 in range(ref_model.N.shape[1] - 2):
+        for idx_c2 in range(idx_c1 + 1, ref_model.N.shape[1] - 1):
+            # print (f'Test clone {idx_c1, idx_c2}.')
 
-                if paga[pop1, pop2] == 1:
-                    can_K = total_K[:, clone, pop1, pop2]
-                    ref_K = total_K[:, -1, pop1, pop2]
+            for pop1 in range(ref_model.N.shape[2]):
+                for pop2 in range(ref_model.N.shape[2]):
 
-                    _, shapiro_p = stats.shapiro(can_K - ref_K)
-                    shapiro_res[clone, pop1, pop2] = shapiro_p
+                    if paga[pop1, pop2] == 1:
+                        K_c1 = total_K[:, idx_c1, pop1, pop2]
+                        K_c2 = total_K[:, idx_c2, pop1, pop2]
 
-                    if shapiro_p < 0.05:
-                        _, paired_p = stats.ttest_rel(can_K, ref_K) 
-                        overall_res[clone, pop1, pop2] = paired_p
+                        K_c1 = K_c1[(K_c1 > np.percentile(K_c1, 2.5)) & (K_c1 < np.percentile(K_c1, 97.5))]
+                        K_c2 = K_c2[(K_c2 > np.percentile(K_c2, 2.5)) & (K_c2 < np.percentile(K_c2, 97.5))]
 
-                    else:
-                        _, wilcox_p = stats.wilcoxon(can_K, ref_K)
-                        overall_res[clone, pop1, pop2] = wilcox_p
+                        _, shapiro_p_c1 = stats.shapiro(K_c1)
+                        _, shapiro_p_c2 = stats.shapiro(K_c2)
+
+                        if shapiro_p_c1 > 0.05 and shapiro_p_c2 > 0.05:
+                        # if pop1 == pop2:
+                            _, paired_p = stats.ttest_ind(K_c1, K_c2) 
+                            overall_res[count, pop1, pop2] = paired_p
+                        else:
+                            _, wilcox_p = stats.mannwhitneyu(K_c1, K_c2)
+                            overall_res[count, pop1, pop2] = wilcox_p
+            count += 1
     
     return shapiro_res, overall_res
 
@@ -539,9 +568,9 @@ def plot_diffclones(
     graph = pd.read_csv(os.path.join(ref_model.data_dir, 'graph_table.csv'), index_col=0)
     np.fill_diagonal(graph.values, 1)
 
-    temp = overall_res.reshape((overall_res.shape[0], overall_res.shape[1] * overall_res.shape[1]))
-    nan_cols = np.isnan(temp).any(axis=0)
-    temp = temp[:, ~nan_cols]
+    # temp = overall_res.reshape((overall_res.shape[0], overall_res.shape[1] * overall_res.shape[1]))
+    # nan_cols = np.isnan(temp).any(axis=0)
+    # temp = temp[:, ~nan_cols]
     
     cols = []
     for i in range(graph.shape[0]):
@@ -549,9 +578,21 @@ def plot_diffclones(
             if graph.values[i][j] != 0:
                 cols.append('{} -> {}'.format(anno['populations'].values[i], anno['populations'].values[j]))
 
-    fig, axes = plt.subplots(figsize=(12, 6))
-    df = pd.DataFrame(data=temp.T, index=cols, columns=[f'Clone {i} / BG' for i in range(overall_res.shape[0])])
-    sns.heatmap(df, annot=True, linewidths=.5, cmap='coolwarm')
+    fig, axes = plt.subplots(figsize=(18, 7))
+    overall_res[overall_res > 0.05] = np.nan
+
+    index = []
+    for idx_c1 in range(ref_model.N.shape[1] - 2):
+        for idx_c2 in range(idx_c1 + 1, ref_model.N.shape[1] - 1):
+            index.append(f'Clone {idx_c1} / {idx_c2}')
+    df = pd.DataFrame(data=-np.log10(overall_res.T), index=cols, columns=index)
+    ax = sns.heatmap(df, annot=False, linewidths=.5, cmap='viridis', vmin=0, vmax=120)
+    plt.title('$-log_{10}$ p-value across meta-clones & populations', fontsize=18)
+    plt.xticks(rotation=30, fontsize=14)
+    plt.yticks(fontsize=14)
+
+    cbar = ax.collections[0].colorbar
+    cbar.ax.tick_params(labelsize=14)
 
     if save:
-        plt.savefig(f'./figs/{save}.png', dpi=300, bbox_inches='tight')
+        plt.savefig(f'./{save}.svg', dpi=600, bbox_inches='tight', transparent=False, facecolor='white')

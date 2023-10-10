@@ -81,7 +81,7 @@ class ODEBlock(nn.Module):
         if basis == 'kaiming_uniform':
             nn.init.kaiming_uniform_(weight, a=math.sqrt(5))
         if basis == 'normal':
-            nn.init.normal_(weight, 0, 0.03)
+            nn.init.normal_(weight, 0, 0.01)
         if basis == 'kaiming_normal':
             nn.init.kaiming_normal_(weight)
 
@@ -124,14 +124,14 @@ class ODEBlock(nn.Module):
             # print (y.shape, self.K2.shape, self.supplement[2].shape, self.supplement[3].shape, self.K2.squeeze().unsqueeze(0).shape)
             z = torch.bmm(y.unsqueeze(1), torch.square(self.K1 * self.supplement[0] + self.supplement[1]) * self.K1_mask).squeeze()
             z += y * (self.K2.squeeze() * self.supplement[2] + self.supplement[3])
-            z -= torch.sum(y.unsqueeze(1) * torch.square(self.K1.mT) * self.K1_mask.mT, dim=1)
+            z -= torch.sum(y.unsqueeze(1) * torch.square(torch.transpose(self.K1, 1, 2)) * torch.transpose(self.K1_mask, 1, 2), dim=1)
             return z
     
         if self.K_type == 'dynamic':
             K1_t, K2_t = self.get_K1_K2(y)
             z = torch.bmm(y.unsqueeze(1), K1_t).squeeze()
             z += y * K2_t 
-            z -= torch.sum(y.unsqueeze(1) * K1_t.mT, dim=1)
+            z -= torch.sum(y.unsqueeze(1) * torch.transpose(K1_t, 1, 2), dim=1)
             return z
 
     def extra_repr(self) -> str:

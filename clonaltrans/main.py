@@ -29,8 +29,8 @@ def run_model(
 
     from .clonaltrans import CloneTranModel
     model = CloneTranModel(
-        N=array_total if N == None else N, 
-        L=paga if L == None else L, 
+        N=array_total, 
+        L=paga, 
         config=config,
         writer=writer
     ).to(config.gpu)

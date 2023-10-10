@@ -21,9 +21,8 @@ class Configuration():
         # float, adjust penalty term on entries not in PAGA L (including diagonal) 
         # and upper bound of diagonal line, default 0.05
         self.alpha = 0.05
-        # float, adjust penalty term on time-variant K(t), 0 -> no constraint
-        # higher value -> K is more determined and resembles self.K_type = 'const', default 1e-3
-        self.beta = 1e-3
+
+        self.D = None
 
         #* OPTIMIZER & SCHEDULER
         self.learning_rate = 1e-3

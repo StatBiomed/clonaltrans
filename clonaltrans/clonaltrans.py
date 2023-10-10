@@ -25,8 +25,11 @@ class CloneTranModel(nn.Module):
         super(CloneTranModel, self).__init__()
         self.N = N
         self.L = L
+        self.D = config.D
         self.exponent = config.exponent
-        self.input_N = input_data_form(self.N, config.input_form, exponent=self.exponent)
+
+        self.input_N = torch.pow(N, exponent=self.exponent)
+        # self.input_N = input_data_form(self.N, config.input_form, exponent=self.exponent)
 
         self.config = config
         self.writer = writer
@@ -37,7 +40,7 @@ class CloneTranModel(nn.Module):
         self.init_optimizer()
         self.get_masks()
         self.var_ub = torch.square(torch.maximum(
-            torch.max(self.input_N, 0)[0].unsqueeze(0) / 10, 
+            torch.max(self.input_N, 0)[0].unsqueeze(0) / 7, 
             torch.tensor([1e-6]).to(config.gpu)
         ))
 
@@ -78,7 +81,7 @@ class CloneTranModel(nn.Module):
 
         self.zero_mask = (torch.sum(self.N, dim=0) == 0).to(torch.float32)
 
-        self.no_proliferate = torch.tensor([0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]).unsqueeze(0).to(torch.float32).to(self.config.gpu)
+        self.no_proliferate = self.D.unsqueeze(0).to(torch.float32).to(self.config.gpu)
 
     def combine_K1_K2(self, K1, K2):
         for clone in range(K1.shape[0]):
@@ -116,11 +119,11 @@ class CloneTranModel(nn.Module):
                 return self.combine_K1_K2(K1, K2)
             else:
                 return K1 * self.oppo_L_nondia, \
-                    torch.concat([
+                    torch.cat([
                         torch.flatten((K1 > 10).to(torch.float32) * (K1 - 10)),
                         torch.flatten((K2 > 6).to(torch.float32) * (K2 - 6))
                     ]), \
-                    torch.concat([
+                    torch.cat([
                         torch.flatten(K1 * self.zero_mask.unsqueeze(-1)), 
                         torch.flatten(K2 * self.zero_mask)
                     ]), \
@@ -137,11 +140,11 @@ class CloneTranModel(nn.Module):
                 res_K1_t, res_K2_t = res_K1_t / self.exponent, res_K2_t / self.exponent
                 
                 return res_K1_t * self.oppo_L_nondia.unsqueeze(0) / res_K2_t.shape[0], \
-                    torch.concat([
+                    torch.cat([
                         torch.flatten((res_K1_t > 10).to(torch.float32) * (res_K1_t - 10)),
                         torch.flatten((res_K2_t > 6).to(torch.float32) * (res_K2_t - 6))
                     ]) / res_K2_t.shape[0], \
-                    torch.concat([
+                    torch.cat([
                         torch.flatten(res_K1_t * (self.N == 0).unsqueeze(-1).to(torch.float32)), 
                         torch.flatten(res_K2_t * (self.N == 0).to(torch.float32))
                     ]) / res_K2_t.shape[0], \
@@ -149,8 +152,13 @@ class CloneTranModel(nn.Module):
 
     def compute_loss(self, y_pred, epoch, pbar):
         pena_nonL, pena_ub, pena_pop_zero, pena_k2_proli = self.get_matrix_K(K_type=self.config.K_type)
-        thres = -1 if self.model_id.startswith('C') else int(self.config.num_epochs / 2)
+        thres = -1 if str(self.model_id).startswith('C') else int(self.config.num_epochs / 2)
         # thres = int(self.config.num_epochs / 2)
+
+        if epoch == thres:
+            for param in self.ode_func.parameters():
+                param.requires_grad = False
+            self.ode_func.std.requires_grad = True
 
         if epoch > thres:
             self.var = torch.broadcast_to(torch.square(self.ode_func.std), self.input_N.shape)[1:]
@@ -160,12 +168,12 @@ class CloneTranModel(nn.Module):
 
         l1 = self.config.alpha * torch.sum(pena_nonL)   
         l2 = self.config.alpha * torch.sum(pena_ub)
-        l3 = 0.05 * torch.linalg.vector_norm(pena_k2_proli, ord=1)
-        l4 = 0.01 * torch.linalg.vector_norm(pena_pop_zero, ord=2)
+        l3 = 0.05 * torch.linalg.norm(pena_k2_proli, ord=1)
+        l4 = 0.01 * torch.linalg.norm(pena_pop_zero, ord=2)
 
         if epoch > thres:
             l5 = torch.flatten((self.var > self.var_ub).to(torch.float32) * (self.var - self.var_ub))
-            l5 = 0.01 * torch.linalg.vector_norm(l5, ord=1)
+            l5 = 0.01 * torch.linalg.norm(l5, ord=1)
         else:
             l5 = torch.tensor([0.0]).to(self.config.gpu)
 
@@ -190,7 +198,10 @@ class CloneTranModel(nn.Module):
         pbar.set_description(descrip)
         self.ode_func.nfe = 0
 
-        loss = loss_obs + l1 + l2 + l4 + l3 + l5
+        if epoch > thres:
+            loss = loss_obs + l5
+        else:
+            loss = loss_obs + l1 + l2 + l4 + l3 + l5
         loss.backward()
         return loss
 

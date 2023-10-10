@@ -9,9 +9,9 @@ __pycache__/
 runs
 figs
 deprecated
-data/V3_Mingze/models
-data/V4_10tpoint/models
-data/V5_Mingze_BG/models
+
+manuscript_figures
+temp
 
 # Distribution / packaging
 .Python

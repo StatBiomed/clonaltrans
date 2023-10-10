@@ -68,7 +68,7 @@ class Bootstrapping(nn.Module):
                         sample_N[tp, :, pop] = counter[pos]
 
             sample_N[0, :, :] = 1
-            buffer.append([sample_N, gpu_id % 4, epoch * self.num_gpus + gpu_id + self.offset])
+            buffer.append([sample_N, gpu_id % 2 + 1, epoch * self.num_gpus + gpu_id + self.offset])
         
         return buffer
 
@@ -77,9 +77,11 @@ class Bootstrapping(nn.Module):
         set_seed(42)
 
         self.config.gpu = gpu_id
-        self.config.learning_rate = 0.05
+        # gpu_id = 1
+        # self.config.learning_rate = 0.05
         self.config.num_epochs = 2000
-        self.config.lrs_ms = [300 * i for i in range(1, 7)]
+        self.config.lrs_ms = [300 * i for i in range(1, 5)]
+        # self.config.D = torch.tensor([0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]).unsqueeze(0).to(torch.float32).to(self.config.gpu)
 
         model = CloneTranModel(
             N=self.N.to(gpu_id), 
@@ -105,7 +107,7 @@ class Bootstrapping(nn.Module):
             model.input_N = model.input_N.to('cpu')
             model.oppo_L_nondia = model.oppo_L_nondia.to('cpu')
             model.ode_func.supplement = [model.ode_func.supplement[i].to('cpu') for i in range(4)]
-            torch.save(model, f'./data/V5_Mingze_BG/models/bootstrapping_const/{model.model_id}.pt')
+            torch.save(model, f'./data/CordBlood_Analysis/models/bootstrapping/{model.model_id}.pt')
 
 class ProfileLikelihood(nn.Module):
     def __init__(self, model, model_path) -> None:
@@ -133,30 +135,32 @@ class ProfileLikelihood(nn.Module):
         print (f'# of pseudo GPUs used: {self.num_gpus}')
         multiprocessing.set_start_method('spawn')
 
-        for clone in range(self.N.shape[1]):
-            for pop1 in range(self.N.shape[2]):
-                for pop2 in range(self.N.shape[2]):
+        from itertools import product
+        for clone, pop1, pop2 in product(range(self.N.shape[1]), range(self.N.shape[2]), range(self.N.shape[2])):
+        # for clone in range(self.N.shape[1]):
+        #     for pop1 in range(self.N.shape[2]):
+        #         for pop2 in range(self.N.shape[2]):
 
-                    if self.paga[pop1, pop2] == 1:
-                        best_fit = self.K1[clone, pop1, pop2] if pop1 != pop2 else self.K2[clone, pop1]
-                        print ('Profile parameter for clone {}, pop1 {}, pop2 {}, value of best fit {:.3f}'.format(clone, self.anno[pop1, 1], self.anno[pop2, 1], best_fit.item()))
+            if self.paga[pop1, pop2] == 1:
+                best_fit = self.K1[clone, pop1, pop2] if pop1 != pop2 else self.K2[clone, pop1]
+                print ('Profile parameter for clone {}, pop1 {}, pop2 {}, value of best fit {:.3f}'.format(clone, self.anno[pop1, 1], self.anno[pop2, 1], best_fit.item()))
 
-                        with multiprocessing.Pool(self.num_gpus + 1) as pool:
-                            res = pool.map_async(
-                                self.profile_process, 
-                                self.fix_para_model(clone, pop1, pop2, best_fit)
-                            )
-                            
-                            pool.close()
-                            pool.join()
-                        
-                        dir_models = os.path.join(os.path.split(self.model_path)[0], '..', 'profilelikeli')
-                        ref_model = torch.load(os.path.join(dir_models, f'C{clone}_P{pop1}_P{pop2}_T15.pt'))
-                        cal_K, likeli = self.profile_validate(
-                            ref_model, clone, pop1, pop2, 
-                            dir_models=dir_models
-                        )
-                        self.plot_profile(cal_K, likeli, clone, self.anno[pop1, 1], self.anno[pop2, 1])
+                with multiprocessing.Pool(self.num_gpus + 1) as pool:
+                    res = pool.map_async(
+                        self.profile_process, 
+                        self.fix_para_model(clone, pop1, pop2, best_fit)
+                    )
+                    
+                    pool.close()
+                    pool.join()
+                
+                dir_models = os.path.join(os.path.split(self.model_path)[0], '..', 'profilelikeli')
+                ref_model = torch.load(os.path.join(dir_models, f'C{clone}_P{pop1}_P{pop2}_T15.pt'))
+                cal_K, likeli = self.profile_validate(
+                    ref_model, clone, pop1, pop2, 
+                    dir_models=dir_models
+                )
+                self.plot_profile(cal_K, likeli, clone, self.anno[pop1, 1], self.anno[pop2, 1])
 
     def fix_para_model(self, clone, pop1, pop2, best_fit):
         buffer = []
@@ -241,10 +245,10 @@ class ProfileLikelihood(nn.Module):
 
         for files in natsorted(os.listdir(dir_models)):
             if files.startswith(f'C{clone}_P{pop1}_P{pop2}') and files != f'C{clone}_P{pop1}_P{pop2}_T15.pt':
-                model_list.append(torch.load(os.path.join(dir_models, files)))
+                model_list.append(torch.load(os.path.join(dir_models, files), map_location='cpu'))
         print (f'# of profiled attemps: {len(model_list)} for C{clone}_P{pop1}_P{pop2}')
 
-        model_list.append(ref_model)
+        model_list.append(torch.load(os.path.join(dir_models, f'C{clone}_P{pop1}_P{pop2}_T15.pt'), map_location='cpu'))
         model_list[-1].ode_func = model_list[-1].ode_func.to('cpu')
         model_list[-1].ode_func.supplement = [i.to('cpu') for i in model_list[-1].ode_func.supplement]
         
@@ -277,27 +281,17 @@ class ProfileLikelihood(nn.Module):
             Line2D([0], [0], marker='o', color='lightcoral', markersize=5, linestyle='')
         ]
         labels = ['Profiled Trails', 'Original Model']
-        plt.legend(legend_elements, labels, loc='right', fontsize=10, bbox_to_anchor=(1.35, 0.5))
-        plt.xlabel('Profiled transition rates of Clone {}'.format(clone))
-        plt.ylabel('Gaussian NLL')
-        plt.title(f'From {pop1} to {pop2}', fontsize=10)
+        # plt.legend(legend_elements, labels, loc='right', fontsize=10, bbox_to_anchor=(1.35, 0.5))
+        plt.xlabel('Profiled transition rates of Clone {}'.format(clone), fontsize=14)
+        plt.ylabel('Gaussian NLL', fontsize=14)
+        plt.xticks(fontsize=14)
+        plt.yticks(fontsize=14)
+        # plt.title(f'From {pop1} to {pop2}', fontsize=10)
 
         # if np.max(likeli) - np.min(likeli) < 1:
         #     plt.ylim([194, 198])
         # plt.ylim([likeli[15] - 1, likeli[15] + 3.8])
 
-        plt.savefig(os.path.join(os.path.split(self.model_path)[0], '../..', f'figures/profilefigs/C{clone}_{pop1}_{pop2}.png'), dpi=300, bbox_inches='tight')
+        # plt.savefig(os.path.join(os.path.split(self.model_path)[0], '../..', f'figures/profilefigs/C{clone}_{pop1}_{pop2}.svg'), dpi=600, bbox_inches='tight', transparent=False, facecolor='white')
+        plt.savefig(f'./C{clone}_{pop1}_{pop2}.svg', dpi=600, bbox_inches='tight', transparent=False, facecolor='white')
         plt.close()
-
-    def profile_all(self, dir_models):
-        for clone in range(self.N.shape[1]):
-            for pop1 in range(self.N.shape[2]):
-                for pop2 in range(self.N.shape[2]):
-
-                    if self.paga[pop1, pop2] == 1 and clone == 1:
-                        best_fit = self.K1[clone, pop1, pop2] if pop1 != pop2 else self.K2[clone, pop1]
-                        print ('Profile parameter for clone {}, pop1 {}, pop2 {}, value of best fit {:.3f}'.format(clone, self.anno[pop1, 1], self.anno[pop2, 1], best_fit.item()))
-
-                        ref_model = torch.load(os.path.join(dir_models, f'C{clone}_P{pop1}_P{pop2}_T15.pt'))
-                        cal_K, likeli = self.profile_validate(ref_model, clone, pop1, pop2, dir_models=dir_models)
-                        self.plot_profile(cal_K, likeli, clone, self.anno[pop1, 1], self.anno[pop2, 1])
