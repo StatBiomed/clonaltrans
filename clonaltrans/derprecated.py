@@ -196,3 +196,97 @@ class Mixture(nn.Module):
             )
             return expr1 + '\n' + expr2 + '\n' + expr3
 
+def trajectory_range(model_list, model_ref, raw_data=True):
+    model_list.append(model_ref)
+    pbar = tqdm(enumerate(model_list))
+    total_pred = []
+
+    for idx, model in pbar:
+        model.ode_func.supplement = [model.ode_func.supplement[i].to('cpu') for i in range(4)]
+        t_smoothed = torch.linspace(model.t_observed[0], model.t_observed[-1], 100).to('cpu')
+        y_pred = model.eval_model(t_smoothed)
+
+        #TODO fit for different data transformation techniques
+        if raw_data:
+            data_values = [model.N, torch.pow(y_pred, 1 / model_ref.config.exponent), None]
+        else:
+            data_values = [model.input_N, y_pred, None]
+
+        obs, pred, _ = data_convert(data_values)
+        total_pred.append(pred)
+    
+    return np.stack(total_pred), obs, t_smoothed
+
+def trajectory_ci(
+    total_pred,
+    obs,
+    t_smoothed,
+    model_ref,
+    boundary,
+    save: bool = False
+):
+    fig, axes = plt.subplots(model_ref.N.shape[1], model_ref.N.shape[2], figsize=(40, 15), sharex=True)
+    lb, ub = np.percentile(total_pred, boundary[0], axis=0), np.percentile(total_pred, boundary[1], axis=0)
+
+    t_obs, t_pred, t_median = data_convert([model_ref.t_observed, t_smoothed, t_smoothed])
+    data_names = ['Observations', 'Predictions', 'Q50']
+    anno = pd.read_csv(os.path.join(model_ref.data_dir, 'annotations.csv'))
+    sample_N = np.ones(obs.shape)
+
+    for row in range(model_ref.N.shape[1]):
+        for col in range(model_ref.N.shape[2]):
+            axes[row][col].fill_between(
+                t_pred,
+                lb[:, row, col],
+                ub[:, row, col],
+                color='lightskyblue',
+                alpha=0.5
+            )
+
+            size_samples = sample_N[:, row, col]
+            plot_gvi(np.percentile(total_pred, 50, axis=0), axes, row, col, t_median, data_names[2], '#929591', size_samples)
+            plot_gvi(total_pred[-1], axes, row, col, t_pred, data_names[1], 'lightcoral', size_samples)
+            plot_gvi(obs, axes, row, col, t_obs, data_names[0], '#2C6975', size_samples)
+    
+            axes[0][col].set_title(anno['populations'][col])
+            axes[row][0].set_ylabel(anno['clones'][row])
+            axes[row][col].set_xticks(t_obs, labels=t_obs.astype(int), rotation=45)
+            axes[row][col].ticklabel_format(axis='y', style='sci', scilimits=(0, 4))
+
+    fig.subplots_adjust(hspace=0.5)
+    fig.subplots_adjust(wspace=0.5)
+
+    legend_elements = [
+        Line2D([0], [0], marker='o', color='#2C6975', markersize=7, linestyle=''), 
+        Line2D([0], [0], color='lightcoral', lw=2), 
+        Line2D([0], [0], color='lightskyblue', lw=2), 
+        Line2D([0], [0], color='#929591', lw=2)
+    ]
+    labels = ['Observations', 'Predictions', f'Q{boundary[0]} - Q{boundary[1]}', 'Q50']
+    fig.legend(legend_elements, labels, loc='right', fontsize='x-large', bbox_to_anchor=(0.96, 0.5))
+
+    if save:
+        plt.savefig(f'./figs/{save}.png', dpi=300, bbox_inches='tight')
+
+def const_and_dyna(K_const, K_dyna, save=False):
+    assert K_const.shape == K_dyna.shape
+    from .pl import get_subplot_dimensions
+    rows, cols, figsize = get_subplot_dimensions(K_const.shape[0], max_cols=3, fig_height_per_row=2)
+    fig, axes = plt.subplots(rows, cols, figsize=figsize)
+
+    for n in range(K_const.shape[0]):
+        x = K_const[n].flatten()
+        y = K_dyna[n].flatten()
+        
+        ax_loc = axes[n // cols][n % cols] if rows > 1 else axes[n]
+        sns.scatterplot(x=x, y=y, s=25, ax=ax_loc, c='lightcoral')
+        ax_loc.plot([x.min(), x.max()], [x.min(), x.max()], linestyle="--", color="grey")
+
+        ax_loc.set_title(f'Clone {n}', fontsize=10)
+        ax_loc.set_ylabel(f'K_dynamic')
+
+        if n > 2:
+            ax_loc.set_xlabel(f'K_const')
+
+    if save is not False:
+        plt.savefig(f'./figs/{save}.png', dpi=300, bbox_inches='tight')

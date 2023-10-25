@@ -11,6 +11,7 @@ MSE = nn.MSELoss(reduction='mean')
 SmoothL1 = nn.SmoothL1Loss(reduction='mean', beta=1.0)
 GaussianNLL = nn.GaussianNLLLoss(reduction='mean', eps=1e-12)
 MAE = nn.L1Loss(reduction='mean')
+PoissonNLL = nn.PoissonNLLLoss(log_input=False, reduction='mean')
 
 class CloneTranModel(nn.Module):
     def __init__(
@@ -60,7 +61,8 @@ class CloneTranModel(nn.Module):
             hidden_dim=self.config.hidden_dim, 
             activation=self.config.activation, 
             K_type=K_type,
-            extras=self.extras
+            extras=self.extras,
+            device=self.config.gpu
         ).to(self.config.gpu)
 
     def init_ode_func(self):
@@ -70,6 +72,8 @@ class CloneTranModel(nn.Module):
     def init_optimizer(self):
         self.optimizer = torch.optim.Adam(self.ode_func.parameters(), lr=self.config.learning_rate, amsgrad=True)
         self.scheduler = torch.optim.lr_scheduler.MultiStepLR(self.optimizer, milestones=self.config.lrs_ms, gamma=0.5)
+        
+        self.optimizer_2 = torch.optim.Adam(self.ode_func.parameters(), lr=self.config.learning_rate, amsgrad=True)
 
     def get_masks(self):
         self.used_L = self.L.clone()
@@ -110,7 +114,6 @@ class CloneTranModel(nn.Module):
     
     def get_matrix_K(self, K_type='const', eval=False, tpoint=1.0):
         if K_type == 'const':
-            # print (self.ode_func.K1.get_device(), self.ode_func.supplement[0].get_device(), self.ode_func.K2.get_device())
             K1 = torch.square(self.ode_func.K1 * self.ode_func.supplement[0] + self.ode_func.supplement[1]) * self.ode_func.K1_mask
             K2 = self.ode_func.K2.squeeze() * self.ode_func.supplement[2] + self.ode_func.supplement[3]
             K1, K2 = K1 / self.exponent, K2 / self.exponent
@@ -152,8 +155,8 @@ class CloneTranModel(nn.Module):
 
     def compute_loss(self, y_pred, epoch, pbar):
         pena_nonL, pena_ub, pena_pop_zero, pena_k2_proli = self.get_matrix_K(K_type=self.config.K_type)
-        thres = -1 if str(self.model_id).startswith('C') else int(self.config.num_epochs / 2)
-        # thres = int(self.config.num_epochs / 2)
+        # thres = -1 if str(self.model_id).startswith('C') else int(self.config.num_epochs / 2)
+        thres = 1500
 
         if epoch == thres:
             for param in self.ode_func.parameters():
@@ -161,10 +164,20 @@ class CloneTranModel(nn.Module):
             self.ode_func.std.requires_grad = True
 
         if epoch > thres:
-            self.var = torch.broadcast_to(torch.square(self.ode_func.std), self.input_N.shape)[1:]
-            loss_obs = GaussianNLL(self.input_N[1:] * self.sample_N[1:], y_pred[1:] * self.sample_N[1:], self.var)
+            std_reshape = torch.broadcast_to(self.ode_func.std, self.input_N.shape)
+
+            l_time3 = GaussianNLL(self.input_N[1] * self.sample_N[1], y_pred[1] * self.sample_N[1], torch.square(std_reshape[1] * 5.354))
+            l_time10 = GaussianNLL(self.input_N[2] * self.sample_N[2], y_pred[2] * self.sample_N[2], torch.square(std_reshape[2] * 583.204))
+            l_time17 = GaussianNLL(self.input_N[3] * self.sample_N[3], y_pred[3] * self.sample_N[3], torch.square(std_reshape[3] * 635.470))
+
+            loss_obs = l_time3 + l_time10 + l_time17
+            
         else:
-            loss_obs = SmoothL1(y_pred[1:] * self.sample_N[1:], self.input_N[1:] * self.sample_N[1:])
+            l_time3 = PoissonNLL(y_pred[1] * self.sample_N[1] / 5.354, self.input_N[1] * self.sample_N[1] / 5.354)
+            l_time10 = PoissonNLL(y_pred[2] * self.sample_N[2] / 583.204, self.input_N[2] * self.sample_N[2] / 583.204)
+            l_time17 = PoissonNLL(y_pred[3] * self.sample_N[3] / 635.470, self.input_N[3] * self.sample_N[3] / 635.470)
+            
+            loss_obs = l_time3 + l_time10 + l_time17
 
         l1 = self.config.alpha * torch.sum(pena_nonL)   
         l2 = self.config.alpha * torch.sum(pena_ub)
@@ -172,7 +185,7 @@ class CloneTranModel(nn.Module):
         l4 = 0.01 * torch.linalg.norm(pena_pop_zero, ord=2)
 
         if epoch > thres:
-            l5 = torch.flatten((self.var > self.var_ub).to(torch.float32) * (self.var - self.var_ub))
+            l5 = torch.flatten((torch.square(self.ode_func.std) > self.var_ub).to(torch.float32) * (torch.square(self.ode_func.std) - self.var_ub))
             l5 = 0.01 * torch.linalg.norm(l5, ord=1)
         else:
             l5 = torch.tensor([0.0]).to(self.config.gpu)
@@ -184,14 +197,16 @@ class CloneTranModel(nn.Module):
         )
 
         descrip = pbar_tb_description(
-            ['ID', 'L/K2Pro', 'L/Upper', 'L/Recon', 'L/VarUb', 'L/Pop0'],
+            ['ID', 'L/K2Pro', 'L/Upper', 'L/VarUb', 'L/Pop0', 'L/L3', 'L/L10', 'L/L17'],
             [
                 self.model_id, 
                 torch.max(pena_k2_proli).item(), 
                 l2.item() / self.config.alpha, 
-                SmoothL1(y_pred * self.sample_N, self.input_N * self.sample_N).item(), 
                 l5.item() / 0.01, 
-                torch.max(pena_pop_zero).item()
+                torch.max(pena_pop_zero).item(),
+                (SmoothL1(y_pred[1], self.input_N[1]) / 5).item(),
+                (SmoothL1(y_pred[2], self.input_N[2]) / 583).item(),
+                (SmoothL1(y_pred[3], self.input_N[3]) / 635).item()
             ],
             epoch, self.writer
         )
@@ -218,6 +233,7 @@ class CloneTranModel(nn.Module):
         pbar = tqdm(range(self.config.num_epochs))
         for epoch in pbar:
             self.optimizer.zero_grad()
+            self.optimizer_2.zero_grad()
 
             if self.config.adjoint:
                 y_pred = odeint_adjoint(self.ode_func, self.input_N[0], t_observed, 
@@ -230,13 +246,15 @@ class CloneTranModel(nn.Module):
 
             loss = self.compute_loss(y_pred, epoch, pbar)
 
-            self.optimizer.step()
-            self.scheduler.step()
+            if epoch <= 1500:
+                self.optimizer.step()
+                self.scheduler.step()
+            else:
+                self.optimizer_2.step()
 
     @torch.no_grad()
     def eval_model(self, t_eval):
         self.ode_func.eval()
-        # self.variance = torch.square(self.ode_func.std)
 
         if self.config.adjoint:
             y_pred = odeint_adjoint(self.ode_func, self.input_N[0], t_eval, method='dopri5')

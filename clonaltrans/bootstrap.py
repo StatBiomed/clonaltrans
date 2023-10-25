@@ -37,17 +37,18 @@ class Bootstrapping(nn.Module):
         assert num_boots % self.num_gpus == 0
         multiprocessing.set_start_method('spawn')
 
-        pbar = tqdm(range(int(num_boots / self.num_gpus)))
+        pbar = tqdm(range(num_boots))
 
-        for epoch in pbar:
-            with multiprocessing.Pool(self.num_gpus) as pool:
-                res = pool.map_async(
+        with multiprocessing.Pool(self.num_gpus) as pool:
+            for epoch in pbar:
+                for res in pool.imap_unordered(
                     self.process, 
                     self.sample_replace(self.N, epoch)
-                )
-                
-                pool.close()
-                pool.join()
+                ):
+                    pass
+            
+            # pool.close()
+            # pool.join()
 
     def sample_replace(self, N_ori, epoch):
         buffer, tps, pops = [], N_ori.shape[0], N_ori.shape[2]
@@ -68,7 +69,7 @@ class Bootstrapping(nn.Module):
                         sample_N[tp, :, pop] = counter[pos]
 
             sample_N[0, :, :] = 1
-            buffer.append([sample_N, gpu_id % 2 + 1, epoch * self.num_gpus + gpu_id + self.offset])
+            buffer.append([sample_N, 1, epoch * self.num_gpus + gpu_id + self.offset])
         
         return buffer
 
@@ -78,10 +79,6 @@ class Bootstrapping(nn.Module):
 
         self.config.gpu = gpu_id
         # gpu_id = 1
-        # self.config.learning_rate = 0.05
-        self.config.num_epochs = 2000
-        self.config.lrs_ms = [300 * i for i in range(1, 5)]
-        # self.config.D = torch.tensor([0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]).unsqueeze(0).to(torch.float32).to(self.config.gpu)
 
         model = CloneTranModel(
             N=self.N.to(gpu_id), 
@@ -107,7 +104,7 @@ class Bootstrapping(nn.Module):
             model.input_N = model.input_N.to('cpu')
             model.oppo_L_nondia = model.oppo_L_nondia.to('cpu')
             model.ode_func.supplement = [model.ode_func.supplement[i].to('cpu') for i in range(4)]
-            torch.save(model, f'./data/CordBlood_Analysis/models/bootstrapping/{model.model_id}.pt')
+            torch.save(model, f'./data/CordBlood2_Analysis/models/bootstrapping/{model.model_id}.pt')
 
 class ProfileLikelihood(nn.Module):
     def __init__(self, model, model_path) -> None:

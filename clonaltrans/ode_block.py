@@ -30,7 +30,8 @@ class ODEBlock(nn.Module):
         hidden_dim: int = 32, 
         activation: str = 'softplus', 
         K_type: str = 'const',
-        extras: any = None
+        extras: any = None,
+        device: any = 0
     ):
         '''
         ODE function dydt = K1 * y + K2 * y + K1.T * y 
@@ -41,10 +42,11 @@ class ODEBlock(nn.Module):
 
         self.nfe = 0
         self.K_type = K_type
+        self.device = device
         self.activation = activation_helper(activation)
 
         if extras == None:
-            self.std = Parameter(torch.ones((1, num_clones, num_pops), dtype=torch.float32), requires_grad=True)
+            self.std = Parameter(torch.ones((1, num_clones, num_pops), dtype=torch.float32) / 100, requires_grad=True)
             self.supplement = [
                 Parameter(torch.ones((num_clones, num_pops, num_pops)), requires_grad=False), Parameter(torch.zeros((num_clones, num_pops, num_pops)), requires_grad=False),
                 Parameter(torch.ones((num_clones, num_pops)), requires_grad=False), Parameter(torch.zeros((num_clones, num_pops)), requires_grad=False),
@@ -105,6 +107,8 @@ class ODEBlock(nn.Module):
         return Parameter(torch.stack(weight_matrix) / 2, requires_grad=True), Parameter(torch.stack(bias_matrix) / 2, requires_grad=True)
 
     def get_K1_K2(self, y):
+        y = nn.LayerNorm(y.shape[1], device=self.device)(y)
+
         z1 = torch.bmm(y.unsqueeze(1), self.K1_encode)
         z1 = self.activation(z1)
         z1 = torch.bmm(z1, self.K1_decode)
@@ -120,8 +124,6 @@ class ODEBlock(nn.Module):
         # print (t)
 
         if self.K_type == 'const':
-            # print (y.get_device(), self.K1.get_device(), self.supplement[0].get_device(), self.K2.get_device())
-            # print (y.shape, self.K2.shape, self.supplement[2].shape, self.supplement[3].shape, self.K2.squeeze().unsqueeze(0).shape)
             z = torch.bmm(y.unsqueeze(1), torch.square(self.K1 * self.supplement[0] + self.supplement[1]) * self.K1_mask).squeeze()
             z += y * (self.K2.squeeze() * self.supplement[2] + self.supplement[3])
             z -= torch.sum(y.unsqueeze(1) * torch.square(torch.transpose(self.K1, 1, 2)) * torch.transpose(self.K1_mask, 1, 2), dim=1)
