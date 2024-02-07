@@ -1,48 +1,6 @@
 import torch
-import pandas as pd
-import os
-import numpy as np
 from torchdiffeq import odeint
 from torch.nn.parameter import Parameter
-
-def get_topo_obs(
-    data_dir, 
-    num_pops: int = 11,
-    fill_diagonal: bool = False, 
-    init_day_zero: bool = True,
-    init_bg: bool = False,
-    device: int = 0
-):
-    # PAGA Topology (Population Adjacency Matrix), same for each clones?
-    paga = pd.read_csv(os.path.join(data_dir, 'graph_table.csv'), index_col=0).astype(np.int32)
-    print (f'Topology graph loaded {paga.shape}.')
-
-    # Will be filled when initializing model, ignore for now
-    if fill_diagonal:
-        np.fill_diagonal(paga.values, 1)
-
-    # number of cells (per timepoints, per meta-clone, per population)
-    array = np.loadtxt(os.path.join(data_dir, 'kinetics_array_correction_factor.txt'))
-    array_ori = array.reshape(array.shape[0], array.shape[1] // num_pops, num_pops)
-    array_ori = torch.swapaxes(torch.tensor(array_ori, dtype=torch.float32), 0, 1)
-    print (f'Input cell data (num_timepoints {array_ori.shape[0]}, num_clones {array_ori.shape[1]}, num_populations {array_ori.shape[2]}) loaded.')
-
-    if init_day_zero:
-        init_con = pd.read_csv(os.path.join(data_dir, 'initial_condition.csv'), index_col=0).astype(np.float32)
-        day_zero = np.zeros((array_ori.shape[1], array_ori.shape[2]))
-        day_zero[:, 0] = init_con['leiden'].values
-        array_ori = torch.cat((torch.tensor(day_zero, dtype=torch.float32).unsqueeze(0), array_ori), axis=0)
-        print (f'Day 0 has been added. Input data shape: {array_ori.shape}')
-
-    # generate background cells
-    if init_bg:
-        background = torch.mean(array_ori, axis=1).unsqueeze(1)
-        array_total = torch.cat((array_ori, background), axis=1)
-        print (f'Background reference cells generated (mean of all other clones). Input data shape: {array_total.shape}')
-    else:
-        array_total = array_ori.clone()
-
-    return torch.tensor(paga.values, dtype=torch.float32, device=device), array_total.to(device)
 
 def get_array_total(ode_func, y0, t_simu, noise_level, scale=True, raw=False):
     array_total = odeint(ode_func, y0, t_simu, rtol=1e-4, atol=1e-4, method='dopri5', options=dict(dtype=torch.float32))
@@ -61,7 +19,7 @@ def get_array_total(ode_func, y0, t_simu, noise_level, scale=True, raw=False):
     return torch.round(array_total)
 
 def get_ode_func(K, L, config):
-    from .ode_block import ODEBlock
+    from .model.ode_block import ODEBlock
     return ODEBlock(
         L=L,
         num_clones=K.shape[0],

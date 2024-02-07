@@ -1,0 +1,17 @@
+{
+    "name": "BootstrappingCI",
+    "logger_config_path": "./clonaltrans/config/logger_config.json",
+
+    "gpu_id": [0],
+    "seed": 42,
+
+    "base_trainer": {
+        "save_dir": "./trails"
+    },
+
+    "model_path": "./trails/checkpoints/ClonalTransRates/0204_190019/model_last.pt",
+    "concurrent": 5,
+    "epoch": 60,
+    "offset": 0
+
+}

@@ -1,0 +1,15 @@
+{
+    "name": "GillespieDivision",
+    "logger_config_path": "./clonaltrans/config/logger_config.json",
+    "model_path": "./trails/checkpoints/ClonalTransRates/0204_190019/model_last.pt",
+
+    "time_interval": 0.1,
+    "concurrent": 20,
+    "epoch": 5,
+    "t_cutoff": 1e-4,
+
+    "base_trainer": {
+        "save_dir": "./trails"
+    }
+
+}

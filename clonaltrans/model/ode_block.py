@@ -2,6 +2,7 @@ from torch import nn
 import torch
 import math
 from torch.nn.parameter import Parameter
+from torchdiffeq import odeint_adjoint, odeint
 
 def activation_helper(activation):
     if activation == 'gelu':
@@ -29,9 +30,7 @@ class ODEBlock(nn.Module):
         num_pops: int = 11,
         hidden_dim: int = 32, 
         activation: str = 'softplus', 
-        K_type: str = 'const',
-        extras: any = None,
-        device: any = 0
+        K_type: str = 'const'
     ):
         '''
         ODE function dydt = K1 * y + K2 * y + K1.T * y 
@@ -40,32 +39,20 @@ class ODEBlock(nn.Module):
         ''' 
         super(ODEBlock, self).__init__()
 
-        self.nfe = 0
         self.K_type = K_type
-        self.device = device
         self.activation = activation_helper(activation)
 
-        if extras == None:
-            self.std = Parameter(torch.ones((1, num_clones, num_pops), dtype=torch.float32) / 100, requires_grad=True)
-            self.supplement = [
-                Parameter(torch.ones((num_clones, num_pops, num_pops)), requires_grad=False), Parameter(torch.zeros((num_clones, num_pops, num_pops)), requires_grad=False),
-                Parameter(torch.ones((num_clones, num_pops)), requires_grad=False), Parameter(torch.zeros((num_clones, num_pops)), requires_grad=False),
-            ]
-
-        else:
-            self.std, self.supplement = Parameter(extras[0], requires_grad=False), extras[3]
-
-        # self.K1_mask = Parameter(torch.triu(torch.ones((num_pops, num_pops)), diagonal=1).unsqueeze(0), requires_grad=False)
+        self.std = Parameter(torch.ones((1, num_clones, num_pops), dtype=torch.float32) / 100, requires_grad=True)
         self.K1_mask = Parameter(L.unsqueeze(0), requires_grad=False)
 
         if self.K_type == 'const':
-            if extras == None:
-                self.K1, self.K2 = self.get_const(num_clones, num_pops)
-            else:
-                self.K1, self.K2 = Parameter(extras[1], requires_grad=True), Parameter(extras[2], requires_grad=True)
+            self.K1, self.K2 = self.get_const(num_clones, num_pops)
         
         if self.K_type == 'dynamic':
             self.K1_encode, self.K1_decode, self.K2_encode, self.K2_decode = self.get_dynamic(num_clones, num_pops, hidden_dim)
+
+        self.layernorm = nn.LayerNorm(num_pops)
+        self.forward_func = self._const_forward if self.K_type == 'const' else self._dynamic_forward
 
     def get_const(self, num_clones, num_pops):
         K1, _ = self.linear_init(num_clones, num_pops, num_pops, 'kaiming_uniform')
@@ -84,8 +71,6 @@ class ODEBlock(nn.Module):
             nn.init.kaiming_uniform_(weight, a=math.sqrt(5))
         if basis == 'normal':
             nn.init.normal_(weight, 0, 0.01)
-        if basis == 'kaiming_normal':
-            nn.init.kaiming_normal_(weight)
 
         if bias is not None:
             fan_in, _ = nn.init._calculate_fan_in_and_fan_out(weight)
@@ -107,7 +92,7 @@ class ODEBlock(nn.Module):
         return Parameter(torch.stack(weight_matrix) / 2, requires_grad=True), Parameter(torch.stack(bias_matrix) / 2, requires_grad=True)
 
     def get_K1_K2(self, y):
-        y = nn.LayerNorm(y.shape[1], device=self.device)(y)
+        y = self.layernorm(y)
 
         z1 = torch.bmm(y.unsqueeze(1), self.K1_encode)
         z1 = self.activation(z1)
@@ -119,22 +104,21 @@ class ODEBlock(nn.Module):
         z2 = torch.bmm(z2, self.K2_decode)
         return z1, z2.squeeze()
 
-    def forward(self, t, y):
-        self.nfe += 1
-        # print (t)
+    def _const_forward(self, t, y):
+        z = torch.bmm(y.unsqueeze(1), torch.square(self.K1) * self.K1_mask).squeeze()
+        z += y * self.K2.squeeze()
+        z -= torch.sum(y.unsqueeze(1) * torch.square(torch.transpose(self.K1, 1, 2)) * torch.transpose(self.K1_mask, 1, 2), dim=1)
+        return z
 
-        if self.K_type == 'const':
-            z = torch.bmm(y.unsqueeze(1), torch.square(self.K1 * self.supplement[0] + self.supplement[1]) * self.K1_mask).squeeze()
-            z += y * (self.K2.squeeze() * self.supplement[2] + self.supplement[3])
-            z -= torch.sum(y.unsqueeze(1) * torch.square(torch.transpose(self.K1, 1, 2)) * torch.transpose(self.K1_mask, 1, 2), dim=1)
-            return z
-    
-        if self.K_type == 'dynamic':
-            K1_t, K2_t = self.get_K1_K2(y)
-            z = torch.bmm(y.unsqueeze(1), K1_t).squeeze()
-            z += y * K2_t 
-            z -= torch.sum(y.unsqueeze(1) * torch.transpose(K1_t, 1, 2), dim=1)
-            return z
+    def _dynamic_forward(self, t, y):
+        K1_t, K2_t = self.get_K1_K2(y)
+        z = torch.bmm(y.unsqueeze(1), K1_t).squeeze()
+        z += y * K2_t 
+        z -= torch.sum(y.unsqueeze(1) * torch.transpose(K1_t, 1, 2), dim=1)
+        return z
+
+    def forward(self, t, y):
+        return self.forward_func(t, y)
 
     def extra_repr(self) -> str:
         if self.K_type == 'const':
@@ -150,3 +134,34 @@ class ODEBlock(nn.Module):
                 self.K2_encode.shape, self.K2_decode.shape
             )
             return expr1 + '\n' + expr2
+
+class ODESolver(nn.Module):
+    def __init__(
+        self, 
+        L,
+        num_clones: int = 7,
+        num_pops: int = 11,
+        hidden_dim: int = 32, 
+        activation: str = 'softplus', 
+        K_type: str = 'const',
+        adjoint: bool = False,
+    ):
+        super(ODESolver, self).__init__()
+
+        self.block = ODEBlock(L, num_clones, num_pops, hidden_dim, activation, K_type)
+        self.adjoint = adjoint
+    
+    def forward(
+        self, 
+        N0, 
+        t_observed, 
+        methods='dopri5',
+        rtol=1e-4,
+        atol=1e-4,
+        options=dict(dtype=torch.float32)
+    ):
+        if self.adjoint:
+            return odeint_adjoint(self.block, N0, t_observed, method=methods, rtol=rtol, atol=atol, options=options)
+        
+        else:
+            return odeint(self.block, N0, t_observed, method=methods, rtol=rtol, atol=atol, options=options)

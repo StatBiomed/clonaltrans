@@ -4,7 +4,7 @@ from collections import Counter
 import torch
 from torch import nn
 import numpy as np
-from .clonaltrans import CloneTranModel
+from ..trainer.clonaltrans import CloneTranModel
 import time
 import pandas as pd
 import os
@@ -14,97 +14,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from scipy import interpolate
 from matplotlib.lines import Line2D
-from .utils import set_seed
-
-class Bootstrapping(nn.Module):
-    def __init__(self, model, offset: int = 0) -> None:
-        super(Bootstrapping, self).__init__()
-
-        self.t_observed = model.t_observed.to('cpu')
-        self.data_dir = model.data_dir
-        self.config = model.config
-        self.num_gpus = 30
-
-        self.N = model.N.detach().clone().to('cpu')
-        self.L = model.L.detach().clone().to('cpu')
-        self.config = model.config
-        self.offset = offset
-
-    def bootstart(self, num_boots=100):
-        print (time.asctime())
-        print (f'# of bootstrapping trails: {num_boots}, # of pseudo GPUs used: {self.num_gpus}')
-        
-        assert num_boots % self.num_gpus == 0
-        multiprocessing.set_start_method('spawn')
-
-        pbar = tqdm(range(num_boots))
-
-        with multiprocessing.Pool(self.num_gpus) as pool:
-            for epoch in pbar:
-                for res in pool.imap_unordered(
-                    self.process, 
-                    self.sample_replace(self.N, epoch)
-                ):
-                    pass
-            
-            # pool.close()
-            # pool.join()
-
-    def sample_replace(self, N_ori, epoch):
-        buffer, tps, pops = [], N_ori.shape[0], N_ori.shape[2]
-        indices = np.arange(0, tps * pops)
-        indices_view = indices.reshape((tps, pops))
-
-        for gpu_id in range(self.num_gpus):
-            sample_N = torch.zeros(N_ori.shape)
-
-            samples = np.random.choice(indices, tps * pops, replace=True)
-            counter = Counter(samples)
-
-            for tp in range(tps):
-                for pop in range(pops):
-                    pos = indices_view[tp][pop]
-
-                    if pos in counter.keys():
-                        sample_N[tp, :, pop] = counter[pos]
-
-            sample_N[0, :, :] = 1
-            buffer.append([sample_N, 1, epoch * self.num_gpus + gpu_id + self.offset])
-        
-        return buffer
-
-    def process(self, args):
-        sample_N, gpu_id, model_id = args
-        set_seed(42)
-
-        self.config.gpu = gpu_id
-        # gpu_id = 1
-
-        model = CloneTranModel(
-            N=self.N.to(gpu_id), 
-            L=self.L.to(gpu_id), 
-            config=self.config, 
-            writer=None, 
-            sample_N=sample_N.to(gpu_id)
-        ).to(gpu_id)
-
-        model.trainable = True
-        model.t_observed = self.t_observed.clone().to(gpu_id)
-        model.data_dir = self.data_dir
-        model.model_id = model_id
-
-        try:
-            model.train_model(model.t_observed)
-        except:
-            model.trainable = False
-
-        #TODO save only trainable & reasonable reconstruction loss models
-        if model.trainable:
-            model.ode_func = model.ode_func.to('cpu')
-            model.input_N = model.input_N.to('cpu')
-            model.oppo_L_nondia = model.oppo_L_nondia.to('cpu')
-            model.ode_func.supplement = [model.ode_func.supplement[i].to('cpu') for i in range(4)]
-            torch.save(model, f'./data/CordBlood2_Analysis/models/bootstrapping/{model.model_id}.pt')
+from ..utils import set_seed
 
 class ProfileLikelihood(nn.Module):
     def __init__(self, model, model_path) -> None:
@@ -292,3 +202,76 @@ class ProfileLikelihood(nn.Module):
         # plt.savefig(os.path.join(os.path.split(self.model_path)[0], '../..', f'figures/profilefigs/C{clone}_{pop1}_{pop2}.svg'), dpi=600, bbox_inches='tight', transparent=False, facecolor='white')
         plt.savefig(f'./C{clone}_{pop1}_{pop2}.svg', dpi=600, bbox_inches='tight', transparent=False, facecolor='white')
         plt.close()
+
+import argparse
+import torch 
+from utils import ConfigParser
+from typing import List
+import numpy as np
+
+import data.datasets as module_data
+from utils import set_seed
+from torch.utils.tensorboard import SummaryWriter
+from trainer import CloneTranModel
+from model import ODEBlock
+
+def run_model(
+    config, 
+    N: any = None,
+    L: any = None
+):
+    set_seed(config['seed'])
+    writer = SummaryWriter(log_dir=config._log_dir)
+    
+    logger = config.get_logger('train')
+    logger.info('Estimating clonal specific transition rates.\n')
+    config['data_loader']['args']['logger'] = logger
+
+    if N == None:
+        data_loader = config.init_obj('data_loader', module_data)
+        N, L = data_loader.get_datasets()
+        N, L = N.to(config['gpu_id']), L.to(config['gpu_id'])
+
+    model = ODEBlock(
+        L=L,
+        num_clones=N.shape[1],
+        num_pops=N.shape[2],
+        hidden_dim=config['arch']['args']['hidden_dim'], 
+        activation=config['arch']['args']['activation'], 
+        K_type=config['arch']['args']['K_type']
+    ).to(config['gpu_id'])
+    model.supplement = [item.to(config['gpu_id']) for item in model.supplement]
+    
+    logger.info(model)
+    logger.info('Integration time of ODE solver is {}'.format(config['user_trainer']['t_observed']))
+
+    params = sum([np.prod(p.size()) for p in model.parameters() if p.requires_grad])
+    logger.info('Trainable parameters: {}\n'.format(params))
+
+    optimizer = torch.optim.AdamW(model.parameters(), lr=config['optimizer']['learning_rate'], amsgrad=True)
+    scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=config['optimizer']['lrs_ms'], gamma=0.5)
+
+    trainer = CloneTranModel(
+        N=N, 
+        L=L, 
+        config=config,
+        writer=writer,
+        model=model,
+        optimizer=optimizer,
+        scheduler=scheduler,
+        t_observed=torch.tensor(config['user_trainer']['t_observed']).to(config['gpu_id'], dtype=torch.float32)
+    )
+    trainer.train_model()
+
+    trainer.writer.flush()
+    trainer.writer.close()
+    torch.save(trainer, config.save_dir)
+    return trainer
+
+if __name__ == '__main__':
+    args = argparse.ArgumentParser(description='Estimation of Clonal Transition Rates')
+    args.add_argument('-c', '--config', default='config.json', type=str, help='config file path (default: None)')
+    args.add_argument('-id', '--run_id', default=None, type=str, help='id of experiment (default: current time)')
+
+    config = ConfigParser.from_args(args)
+    run_model(config)

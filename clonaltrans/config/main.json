@@ -1,0 +1,51 @@
+{
+    "name": "ClonalTransRates",
+    "logger_config_path": "./clonaltrans/config/logger_config.json",
+
+    "gpu_id": 0,
+    "seed": 42,
+    
+    "arch": {
+        "type": "ODEBlock",
+        "args": {
+            "activation": "softplus",
+            "hidden_dim": 32,
+            "K_type": "dynamic"
+        }
+    },
+
+    "base_trainer": {
+        "epochs": 2000,
+        "save_dir": "./trails",
+        "verbosity": 2
+    },
+
+    "user_trainer": {
+        "adjoint": false,
+        "alpha": 0.05,
+        "beta": 0.1,
+        "no_proliferation_pops": [0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 1, 1],
+        "t_observed": [0, 3, 10, 17],
+        "scaling_factor": [1, 5.354, 583.204, 635.470],
+        "ub_for_prol": 6,
+        "ub_for_diff": 10
+    },    
+
+    "optimizer": {
+        "learning_rate": 1e-3,
+        "lrs_ms": [200, 400, 600, 800]
+    },
+
+    "data_loader": {
+        "type": "ClonalTransDataLoader",
+        "args":{
+            "data_dir": "./clonaltrans/demo_dataset",
+            "num_populations": 16,
+            "annots": "annotations.csv",
+            "graphs": "graph_table.csv",
+            "day_zero": "initial_condition.csv",
+            "cell_counts": "kinetic_array_correction_factor.txt"
+        }
+    }
+
+}
