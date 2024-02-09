@@ -33,7 +33,7 @@
 
     "optimizer": {
         "learning_rate": 1e-3,
-        "lrs_ms": [200, 400, 600, 800]
+        "lrs_ms": [200, 400, 600, 800, 1000]
     },
 
     "data_loader": {
