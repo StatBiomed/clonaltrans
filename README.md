@@ -20,7 +20,7 @@ Parameters within JSON file,
 
 - K_type: 'dynamic' or 'const', whether transition rates are constant value
 - alpha: penalize factor for upper bounds of rates and proliferation rate of fully differentiated populations
-- beta: penalize factor for population with zero counts that have rates and std in GaussianNLL
+- beta: penalize factor for population with zero counts that have rates and std in GaussianNLL, **consider further increasing this parameter to suppress rates of zero counts population, might try 0.3 for instance?**
 - no_proliferation_pops: please provide binary labels of fully differentiated populations which should NOT have any proliferation ability
 - t_observed: please provide experimental time points
 - scaling_facotr: please provide the scaling factor to total counts for each time points 
