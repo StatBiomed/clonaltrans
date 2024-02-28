@@ -1,17 +1,19 @@
 {
-    "name": "BootstrappingCI",
-    "logger_config_path": "./clonaltrans/config/logger_config.json",
+    "name": "WeinrebDynamicBoots",
+    "logger_config_path": "/ssd/users/mingzegao/clonaltrans/clonaltrans/config/logger_config.json",
 
-    "gpu_id": [0],
-    "seed": 42,
-
-    "base_trainer": {
-        "save_dir": "./trails"
+    "system": {
+        "gpu_id": [0, 1, 2, 4],
+        "seed": 56
     },
 
-    "model_path": "./trails/checkpoints/ClonalTransRates/0204_190019/model_last.pt",
-    "concurrent": 5,
-    "epoch": 60,
+    "base_trainer": {
+        "save_dir": "/ssd/users/mingzegao/clonaltrans/trails"
+    },
+
+    "model_path": "/ssd/users/mingzegao/clonaltrans/trails/checkpoints/WeinrebDynamicRates/0226_210548/model_last.pt",
+    "concurrent": 20,
+    "epoch": 10,
     "offset": 0
 
 }

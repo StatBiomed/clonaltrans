@@ -63,10 +63,15 @@ def pbar_tb_description(var_names, var_lists, iter, writer):
     
     return res
 
+def get_post_masks(model, tpoint):
+    predictions = model.eval_model(torch.tensor([0.0, max(tpoint, 0.001)]).to(model.config['system']['gpu_id']))[1]
+    masks = np.where(predictions.detach().cpu().numpy() < 0.5)
+    return masks
+
 def get_K_total(model, tpoints=None):
     K_total = []
     K_type = model.config['arch']['args']['K_type']
-    gpu = model.config['gpu_id']
+    gpu = model.config['system']['gpu_id']
 
     if tpoints is None:
         x = torch.linspace(0, int(model.t_observed[-1].item()), int(model.t_observed[-1].item() + 1)).to(gpu)
@@ -74,17 +79,25 @@ def get_K_total(model, tpoints=None):
         x = tpoints
 
     for i in range(len(x)):
+        masks = get_post_masks(model, x[i])
         K = model.get_matrix_K(K_type=K_type, eval=True, tpoint=x[i]).detach().cpu().numpy()
+        K[masks[0], masks[1], :] = 0
         K_total.append(K)
     
     return np.stack(K_total) # (num_time_points, num_clones, num_pops, num_pops)
 
 def get_boots_K_total(model_list, ref_model=None, K_type='const', tpoint=1.0):
     total_K = []
-    for model in model_list:
-        total_K.append(model.get_matrix_K(K_type=K_type, eval=True, tpoint=tpoint).detach().cpu().numpy())
 
+    for model in model_list:
+        masks = get_post_masks(model, tpoint)
+        K = model.get_matrix_K(K_type=K_type, eval=True, tpoint=tpoint).detach().cpu().numpy()
+        K[masks[0], masks[1], :] = 0
+        total_K.append(K)
+
+    masks = get_post_masks(ref_model, tpoint)
     ref_K = ref_model.get_matrix_K(K_type=K_type, eval=True, tpoint=tpoint).detach().cpu().numpy()
+    ref_K[masks[0], masks[1], :] = 0
     return np.stack(total_K), ref_K # (b, c, p, p) (c, p, p)
 
 def clone_rates_diff_test(ref_model, total_K, correct_method='fdr_bh'):
@@ -109,16 +122,19 @@ def clone_rates_diff_test(ref_model, total_K, correct_method='fdr_bh'):
                 K_c1 = K_c1[(K_c1 > np.percentile(K_c1, 2.5)) & (K_c1 < np.percentile(K_c1, 97.5))]
                 K_c2 = K_c2[(K_c2 > np.percentile(K_c2, 2.5)) & (K_c2 < np.percentile(K_c2, 97.5))]
 
-                _, shapiro_p_c1 = stats.shapiro(K_c1)
-                _, shapiro_p_c2 = stats.shapiro(K_c2)
+                try:
+                    _, shapiro_p_c1 = stats.shapiro(K_c1)
+                    _, shapiro_p_c2 = stats.shapiro(K_c2)
 
-                if shapiro_p_c1 > 0.05 and shapiro_p_c2 > 0.05:
-                    _, paired_p = stats.ttest_ind(K_c1, K_c2) 
-                    stats_tests[count, pop1, pop2] = paired_p
-                    
-                else:
-                    _, wilcox_p = stats.mannwhitneyu(K_c1, K_c2)
-                    stats_tests[count, pop1, pop2] = wilcox_p
+                    if shapiro_p_c1 > 0.05 and shapiro_p_c2 > 0.05:
+                        _, paired_p = stats.ttest_ind(K_c1, K_c2) 
+                        stats_tests[count, pop1, pop2] = paired_p
+                        
+                    else:
+                        _, wilcox_p = stats.mannwhitneyu(K_c1, K_c2)
+                        stats_tests[count, pop1, pop2] = wilcox_p
+                except:
+                    stats_tests[count, pop1, pop2] = 1
         count += 1
     
     stats_correct = stats_tests.reshape((stats_tests.shape[0], stats_tests.shape[1] * stats_tests.shape[1]))
@@ -149,7 +165,7 @@ def get_boots_K_total_with_time(model_list, ref_model=None, tpoints=None):
         K_total.append(total_K) 
         ref_K_total.append(ref_K) 
 
-        N = ref_model.eval_model(torch.tensor([0.0, max(x[i], 0.01)]))[1]
+        N = ref_model.eval_model(torch.tensor([0.0, max(x[i], 0.001)]))[1]
         N_total.append(N)
     
     K_total = np.stack(K_total) #* (time, num_bootstraps, clones, pops, pops)

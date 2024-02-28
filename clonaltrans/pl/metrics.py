@@ -4,7 +4,7 @@ from scipy.stats import spearmanr
 import seaborn as sns
 from .base import get_subplot_dimensions, transit_K
 import numpy as np 
-from utils import get_K_total
+from utils import get_K_total, get_post_masks
 from scipy.stats import pearsonr
 import torch
 import pandas as pd
@@ -49,6 +49,9 @@ def clone_specific_K(model, index_clone=0, tpoint=1.0, save=False):
     K_type = model.config['arch']['args']['K_type']
     K = model.get_matrix_K(K_type=K_type, eval=True, tpoint=tpoint).detach().cpu().numpy()
     print ('---> Negative values were cut to the opposite of positive values for visualization purpose. <---')
+
+    masks = get_post_masks(model, tpoint)
+    K[masks[0], masks[1], :] = 0
 
     df = transit_K(model, K[index_clone])
     _, axes = plt.subplots(1, 1, figsize=(8, 6))
@@ -98,7 +101,12 @@ def rates_notin_paga(model, save=False):
 
 def rates_diagonal(model, tpoint=1.0, save=False):
     K_type = model.config['arch']['args']['K_type']
-    K = model.get_matrix_K(K_type=K_type, eval=True, tpoint=tpoint)
+    K = model.get_matrix_K(K_type=K_type, eval=True, tpoint=tpoint).detach().cpu().numpy()
+
+    masks = get_post_masks(model, tpoint)
+    K[masks[0], masks[1], :] = 0
+    K = torch.tensor(K, dtype=torch.float32)
+
     diag = torch.diagonal(K, dim1=-2, dim2=-1).detach().cpu().numpy()
     print ('---> Negative values were cut to the opposite of positive values for visualization purpose. <---')
 
@@ -126,7 +134,7 @@ def compare_with_bg(model, save=False):
     plt.xlabel(f'All cells (incl. filtered at pre-processing)', fontsize=13)
     plt.ylabel(f'Mean of {K_total.shape[1] - 1} meta-clones', fontsize=13)
     plt.text(0.5, -1, f'$Pearson \; r = {corr:.3f}$', fontsize=13)
-    plt.title(f'Comparison of rates (Day 0 ~ Day 17)', fontsize=13)
+    plt.title(f'Distribution of rates (Day {model.t_observed[0]} ~ Day {model.t_observed[-1]})', fontsize=13)
 
     if save is not False:
         plt.savefig(f'./{save}.svg', dpi=600, bbox_inches='tight', transparent=False, facecolor='white')
@@ -181,16 +189,16 @@ def get_rates_avg(model, save: bool = False):
 
     prol, diff = [], []
     for i in range(num_clones):
-        prol.append(np.mean(K_total[i].diagonal()[np.abs(K_total[i].diagonal()) > 1e-2]))
+        prol.append(np.mean(K_total[i].diagonal()[np.abs(K_total[i].diagonal()) > 0]))
 
         np.fill_diagonal(K_total[i], 0)
-        diff.append(np.mean(K_total[i][np.abs(K_total[i]) > 1e-2].flatten()))
+        diff.append(np.mean(K_total[i][np.abs(K_total[i]) > 0].flatten()))
     
     df = pd.DataFrame({'Proliferation': prol, 'Differeation': diff})
     df.index = [f'Clone {i}' if i != num_clones - 1 else 'Clone BG' for i in range(num_clones)]
 
     ax = df.plot(kind='bar', stacked=False, figsize=(8,4), width=0.8, colormap='tab20')
-    plt.legend(bbox_to_anchor=(1, 1), frameon=False)
+    plt.legend(bbox_to_anchor=(0.25, 1), frameon=False)
     plt.xticks(rotation=90, fontsize=10)
     plt.ylabel('Average rates among populations', fontsize=12)
 

@@ -12,7 +12,7 @@ from trainer import CloneTranModel
 from model import ODESolver
 
 def run_model(config):
-    set_seed(config['seed'])
+    set_seed(config['system']['seed'])
     writer = SummaryWriter(log_dir=config._log_dir)
     
     logger = config.get_logger('train')
@@ -21,7 +21,7 @@ def run_model(config):
 
     data_loader = config.init_obj('data_loader', module_data)
     N, L = data_loader.get_datasets()
-    N, L = N.to(config['gpu_id']), L.to(config['gpu_id'])
+    N, L = N.to(config['system']['gpu_id']), L.to(config['system']['gpu_id'])
 
     model = ODESolver(
         L=L,
@@ -31,7 +31,7 @@ def run_model(config):
         activation=config['arch']['args']['activation'], 
         K_type=config['arch']['args']['K_type'],
         adjoint=config['user_trainer']['adjoint']
-    ).to(config['gpu_id'])
+    ).to(config['system']['gpu_id'])
     
     logger.info(model)
     logger.info('Integration time of ODE solver is {}'.format(config['user_trainer']['t_observed']))
@@ -50,7 +50,7 @@ def run_model(config):
         model=model,
         optimizer=optimizer,
         scheduler=scheduler,
-        t_observed=torch.tensor(config['user_trainer']['t_observed']).to(config['gpu_id'], dtype=torch.float32)
+        t_observed=torch.tensor(config['user_trainer']['t_observed']).to(config['system']['gpu_id'], dtype=torch.float32)
     )
     trainer.train_model()
 

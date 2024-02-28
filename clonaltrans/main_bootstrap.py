@@ -34,7 +34,7 @@ class Bootstrapping(nn.Module):
         self.concurrent = config['concurrent']
         self.epoch = config['epoch']
         self.offset = config['offset']
-        self.used_gpu_ids = config['gpu_id']
+        self.used_gpu_ids = config['system']['gpu_id']
 
         self.N = model.N.detach().clone().to('cpu')
         self.L = model.L.detach().clone().to('cpu')
@@ -44,7 +44,7 @@ class Bootstrapping(nn.Module):
         self.logger.info(time.asctime())
         self.logger.info(f'# of epochs: {self.epoch}, # of pseudo GPUs used: {self.concurrent}')
         
-        assert self.epoch % self.concurrent == 0
+        # assert self.epoch % self.concurrent == 0
         multiprocessing.set_start_method('spawn')
 
         pbar = tqdm(range(self.epoch))
@@ -111,7 +111,8 @@ class Bootstrapping(nn.Module):
             optimizer=optimizer,
             scheduler=scheduler,
             t_observed=torch.tensor(self.config['user_trainer']['t_observed']).to(gpu_id, dtype=torch.float32),
-            sample_N=sample_N.to(gpu_id)
+            sample_N=sample_N.to(gpu_id),
+            gpu_id=gpu_id
         )
         trainer.trainable = True
         trainer.model_id = model_id
@@ -123,7 +124,7 @@ class Bootstrapping(nn.Module):
             torch.save(trainer, os.path.join(self.save_dir, f'{trainer.model_id}.pt'))
 
 def run_model(config):
-    set_seed(config['seed'])
+    set_seed(config['system']['seed'])
     
     logger = config.get_logger('bootstrap')
     logger.info('Estimating confidence intervals of parameters using bootstrapping method.\n')

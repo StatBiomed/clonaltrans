@@ -132,7 +132,7 @@ def parameter_ci(
     anno = pd.read_csv(os.path.join(ref_model.config['data_loader']['args']['data_dir'], ref_model.config['data_loader']['args']['annots']))
 
     total_K, ref_K = get_boots_K_total(model_list, ref_model, K_type, tpoint)
-    N = ref_model.eval_model(torch.tensor([0.0, max(tpoint, 0.01)]))[1]
+    N = ref_model.eval_model(torch.tensor([0.0, max(tpoint, 0.001)]))[1]
 
     bootstrap_K = total_K[:, index_clone, pop_1, pop_2] if N[index_clone, pop_1] > 0.5 else np.zeros(total_K.shape[0])
     lb, ub = np.percentile(bootstrap_K, 2.5), np.percentile(bootstrap_K, 97.5)

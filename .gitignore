@@ -6,12 +6,10 @@ __pycache__/
 # C extensions
 *.so
 
-runs
-figs
+datasets
+manuscript_figs
 deprecated
-
-manuscript_figures
-temp
+trails
 
 # Distribution / packaging
 .Python
