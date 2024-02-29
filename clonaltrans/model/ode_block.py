@@ -41,8 +41,6 @@ class ODEBlock(nn.Module):
 
         self.K_type = K_type
         self.activation = activation_helper(activation)
-
-        self.std = Parameter(torch.ones((1, num_clones, num_pops), dtype=torch.float32) / 100, requires_grad=True)
         self.K1_mask = Parameter(L.unsqueeze(0), requires_grad=False)
 
         if self.K_type == 'const':

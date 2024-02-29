@@ -11,7 +11,8 @@ from .metrics import (
 
 from .trajectory import (
     grid_visualize,
-    parameter_ci
+    parameter_ci,
+    trajectory_ci
 )
 
 from .gillespie_tree import (

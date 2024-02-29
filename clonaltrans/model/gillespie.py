@@ -6,10 +6,11 @@ import json
 import copy
 from utils import set_seed
 
-def gillespie_rates(matrix_K, init=False):
+def gillespie_rates(matrix_K, L, init=False):
     diff_rates = copy.deepcopy(matrix_K)
     np.fill_diagonal(diff_rates, 0)
-    diff_rates = diff_rates.flatten()[diff_rates.flatten().nonzero()]
+    # diff_rates = diff_rates.flatten()[diff_rates.flatten().nonzero()]
+    diff_rates = diff_rates[L != 0]
 
     prol_rates = copy.deepcopy(matrix_K)
     prol_rates = np.diag(prol_rates)
@@ -19,13 +20,12 @@ def gillespie_rates(matrix_K, init=False):
 
     if init:
         # Directions of differentiation matrix
-        get_index = copy.deepcopy(matrix_K)
-        np.fill_diagonal(get_index, 0)
-        directions = np.where(get_index > 0)
+        # get_index = copy.deepcopy(matrix_K)
+        # np.fill_diagonal(get_index, 0)
+        directions = np.where(L > 0)
 
         M = np.zeros((len(diff_rates), 2), dtype=int)
         M[:, 0], M[:, 1] = directions[0], directions[1]
-
         return M, rates, len(diff_rates)
 
     else:
@@ -50,7 +50,7 @@ def gillespie_module(rates, number_cells, vec_clusters, t, config):
     aux[aux >= 0] = -10
 
     idx_reaction = np.argmax(aux)
-    return idx_reaction, t
+    return idx_reaction, t, rates_vec
 
 def gillespie_main(
     seed, 
@@ -58,7 +58,8 @@ def gillespie_main(
     time_all,
     cluster_names,
     gillespie_dir,
-    config
+    config,
+    L
 ):
     set_seed(seed)
 
@@ -69,7 +70,7 @@ def gillespie_main(
     if os.path.exists(f'./{gillespie_dir}/num_cells_{seed}.csv'):
         os.remove(f'./{gillespie_dir}/num_cells_{seed}.csv')
 
-    M, rates, number_diff_rates = gillespie_rates(K_total[0], init=True)
+    M, rates, number_diff_rates = gillespie_rates(K_total[0], L, init=True)
     occurred_reactions = np.zeros(len(rates))
 
     #* Index of outbound clusters corresponding to the reactions
@@ -90,12 +91,19 @@ def gillespie_main(
 
     t = 0
     list_number_cells = number_cells.copy()
+    tag = True
 
     while np.sum(number_cells) > 0 and t <= time_all[-1]:
-        idx_reaction, t = gillespie_module(rates, number_cells, vec_clusters, t, config)
+        idx_reaction, t, rates_vec = gillespie_module(rates, number_cells, vec_clusters, t, config)
+
+        if rates_vec == 0:
+            os.remove(f'{gillespie_dir}/structure_{seed}.txt')
+            tag = False
+            break
+
         occurred_reactions[idx_reaction] += 1
 
-        prol_rates, rates = gillespie_rates(K_total[np.abs(time_all - t).argmin()], init=False)
+        prol_rates, rates = gillespie_rates(K_total[np.abs(time_all - t).argmin()], L, init=False)
 
         if idx_reaction >= number_diff_rates:
             total_id = idx_reaction - number_diff_rates
@@ -143,9 +151,10 @@ def gillespie_main(
             json.dump(str(cell_ids[-1]), f1)
             f1.write('\n')
     
-    occurred_reactions = pd.DataFrame(index=range(len(occurred_reactions)), columns=['# of reactions'], data=occurred_reactions)
-    occurred_reactions.to_csv(f'./{gillespie_dir}/occurred_{seed}.csv')
+    if tag:
+        occurred_reactions = pd.DataFrame(index=range(len(occurred_reactions)), columns=['# of reactions'], data=occurred_reactions)
+        occurred_reactions.to_csv(f'{gillespie_dir}/occurred_{seed}.csv')
 
-    list_number_cells = pd.DataFrame(index=range(len(list_number_cells)), columns=keys[:-1], data=list_number_cells)
-    list_number_cells['Total counts'] = np.sum(list_number_cells.values, axis=1)
-    list_number_cells.to_csv(f'./{gillespie_dir}/num_cells_{seed}.csv')
+        list_number_cells = pd.DataFrame(index=range(len(list_number_cells)), columns=keys[:-1], data=list_number_cells)
+        list_number_cells['Total counts'] = np.sum(list_number_cells.values, axis=1)
+        list_number_cells.to_csv(f'{gillespie_dir}/num_cells_{seed}.csv')

@@ -17,20 +17,16 @@
     },
 
     "base_trainer": {
-        "epochs": 2000,
+        "epochs": 1500,
         "save_dir": "/ssd/users/mingzegao/clonaltrans/trails",
         "verbosity": 2
     },
 
     "user_trainer": {
         "adjoint": false,
-        "alpha_1": 1.0,
-        "alpha_2": 0.5,
-        "alpha_3": 0.5,
-        "alpha_4": 1e-2,
-        "alpha_5": 1.0,
-        "alpha_6": 0.1,
+        "alphas": [1.0, 0.5, 0.5, 0.5, 0.1, 1.0],
         "no_proliferation_pops": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+        "no_apoptosis_pops": [1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
         "t_observed": [0, 2, 4, 6],
         "scaling_factor": [1, 1.0808, 3.1616, 8.7108],
         "ub_for_prol": 6,
@@ -39,8 +35,7 @@
 
     "optimizer": {
         "learning_rate": 1e-3,
-        "lrs_ms": [200, 400, 600, 800, 1000],
-        "thres": 1500
+        "lrs_ms": [200, 400, 600, 800, 1000]
     },
 
     "data_loader": {

@@ -133,7 +133,7 @@ def compare_with_bg(model, save=False):
     plt.plot([x.min(), x.max()], [x.min(), x.max()], linestyle="--", color="grey")
     plt.xlabel(f'All cells (incl. filtered at pre-processing)', fontsize=13)
     plt.ylabel(f'Mean of {K_total.shape[1] - 1} meta-clones', fontsize=13)
-    plt.text(0.5, -1, f'$Pearson \; r = {corr:.3f}$', fontsize=13)
+    plt.text(-0.5, 1, f'$Pearson \; r = {corr:.3f}$', fontsize=13)
     plt.title(f'Distribution of rates (Day {model.t_observed[0]} ~ Day {model.t_observed[-1]})', fontsize=13)
 
     if save is not False:

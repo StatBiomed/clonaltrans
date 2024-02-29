@@ -33,20 +33,21 @@ class Bootstrapping(nn.Module):
 
         self.concurrent = config['concurrent']
         self.epoch = config['epoch']
-        self.offset = config['offset']
         self.used_gpu_ids = config['system']['gpu_id']
+        self.calibrate = config['calibrate']
 
         self.N = model.N.detach().clone().to('cpu')
         self.L = model.L.detach().clone().to('cpu')
         self.config = model.config
 
+        if self.calibrate:
+            self.error_queue = multiprocessing.Queue()
+
     def bootstart(self):
         self.logger.info(time.asctime())
         self.logger.info(f'# of epochs: {self.epoch}, # of pseudo GPUs used: {self.concurrent}')
         
-        # assert self.epoch % self.concurrent == 0
         multiprocessing.set_start_method('spawn')
-
         pbar = tqdm(range(self.epoch))
 
         with multiprocessing.Pool(self.concurrent) as pool:
@@ -77,7 +78,7 @@ class Bootstrapping(nn.Module):
             sample_N[0, :, :] = 1
 
             assigned_gpu = self.used_gpu_ids[0] if len(self.used_gpu_ids) == 1 else self.used_gpu_ids[int(pseudo_gpu_id % len(self.used_gpu_ids))]
-            buffer.append([sample_N, assigned_gpu, epoch * self.concurrent + pseudo_gpu_id + self.offset])
+            buffer.append([sample_N, assigned_gpu, epoch * self.concurrent + pseudo_gpu_id])
         
         return buffer
 
@@ -117,11 +118,19 @@ class Bootstrapping(nn.Module):
         trainer.trainable = True
         trainer.model_id = model_id
 
-        try: trainer.train_model()
-        except: trainer.trainable = False
+        if self.calibrate:
+            try: trainer.train_model()
+            except Exception as e: self.error_queue.put(str(e))
+    
+            if not self.error_queue.empty():
+                self.logger.info(self.error_queue.get())
 
-        if trainer.trainable:
-            torch.save(trainer, os.path.join(self.save_dir, f'{trainer.model_id}.pt'))
+        else:
+            try: trainer.train_model()
+            except: trainer.trainable = False
+
+            if trainer.trainable:
+                torch.save(trainer, os.path.join(self.save_dir, f'{trainer.model_id}.pt'))
 
 def run_model(config):
     set_seed(config['system']['seed'])
@@ -131,7 +140,9 @@ def run_model(config):
 
     model_ori = torch.load(config['model_path'], map_location='cpu')
     boots = Bootstrapping(model_ori, config, logger)
-    boots.bootstart()
+
+    if config['calibrate']: boots.process([torch.ones(boots.N.shape), 0, 0])
+    else: boots.bootstart()
 
 if __name__ == '__main__':
     args = argparse.ArgumentParser(description='Bootstrapping for confidence intervals')

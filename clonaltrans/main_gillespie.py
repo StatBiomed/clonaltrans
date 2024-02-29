@@ -7,6 +7,7 @@ import torch
 import argparse
 from utils import ConfigParser, get_K_total
 from model import gillespie_main
+import time
 
 class GillespieDivision():
     def __init__(
@@ -33,12 +34,16 @@ class GillespieDivision():
             model.config['data_loader']['args']['annots']
         ))['populations'][:K_total.shape[2]]
 
+        self.L = model.used_L.squeeze()
+        self.L.fill_diagonal_(0)
+        self.L = self.L.detach().cpu().numpy()
+
     def bootstart(self):
         multiprocessing.set_start_method('spawn')
         pbar = tqdm(range(self.num_clones))
 
         for clone in pbar:
-            self.logger.info(f'Start multiprocessing for meta-clone {clone}.')
+            self.logger.info(f'Start multiprocessing for meta-clone {clone} at {time.asctime()}.')
             gillespie_dir = os.path.join(self.save_dir, f'clone_{clone}')
             if not os.path.exists(gillespie_dir):
                 os.mkdir(gillespie_dir)
@@ -52,17 +57,17 @@ class GillespieDivision():
                     ):
                         pass
             
-            self.logger.info(f'End multiprocessing for each meta-clone {clone}.')
+            self.logger.info(f'End multiprocessing for each meta-clone {clone} at {time.asctime()}.')
 
     def get_buffer(self, epoch, K_total, gillespie_dir):
         buffer = []
         for idx in range(self.concurrent):
-            buffer.append([epoch * self.concurrent + idx, K_total, self.time_all, self.cluster_names, gillespie_dir, self.config])
+            buffer.append([epoch * self.concurrent + idx, K_total, self.time_all, gillespie_dir])
         return buffer
 
     def process(self, args):
-        seed, K_total, time_all, cluster_names, gillespie_dir, self.config = args
-        gillespie_main(seed, K_total, time_all, cluster_names, gillespie_dir, self.config)
+        seed, K_total, time_all, gillespie_dir = args
+        gillespie_main(seed, K_total, time_all, self.cluster_names, gillespie_dir, self.config, self.L)
 
 def run_model(config):
     logger = config.get_logger('gillespie')
@@ -75,6 +80,7 @@ def run_model(config):
     
     K_total = get_K_total(model_ori, tpoints=time_all) 
     logger.info(f'Reference time points are {time_all[:5]}')
+    logger.info(f'Dimension of transition rates for this Gillespie trail: {K_total.shape}')
 
     gilles = GillespieDivision(model_ori, config, logger, K_total, time_all)
     gilles.bootstart()

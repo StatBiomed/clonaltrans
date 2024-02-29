@@ -20,6 +20,7 @@ def get_div_distribution(gillespie_dir, cluster_names):
     div_path = os.path.join(gillespie_dir, 'res_div.txt')
     res_div = [[] for i in cluster_names[1:]]
     res_div = dict(zip(cluster_names[1:], res_div))
+    num_trails = 0
 
     with open(div_path, 'r') as f:
         for idx, line in tqdm(enumerate(f)):
@@ -27,22 +28,23 @@ def get_div_distribution(gillespie_dir, cluster_names):
             line = json.loads(line)
             line = ast.literal_eval(line)
             del line['seed']
+            num_trails += 1
 
             for key in line.keys():
                 res_div[key].extend(line[key])
     
-    return res_div
+    return res_div, num_trails
 
 def visualize_num_div(cluster_names, gillespie_dir, palette='tab20', save=False):
-    res_div = get_div_distribution(gillespie_dir, cluster_names)
-
+    res_div, num_trails = get_div_distribution(gillespie_dir, cluster_names)
     colors = get_hex_colors(palette)
+    colors = colors * 2
     clone = gillespie_dir.split('/')[-2]
 
     for cid in range(1, len(cluster_names)):
         if res_div[cluster_names[cid]] != []:
             fig, axes = plt.subplots(1, 1, figsize=(6, 6))
-
+            
             sns.histplot(res_div[cluster_names[cid]], ax=axes, color=colors[cid], bins=50)
             axes.set_title(cluster_names[cid], fontsize=14)
             axes.set_ylabel('# of seed trails', fontsize=13)
@@ -57,7 +59,7 @@ def visualize_num_div(cluster_names, gillespie_dir, palette='tab20', save=False)
                 s=f'Mean # of divisions: ${np.mean(res_div[cluster_names[cid]]):.2f}$', transform=plt.gca().transAxes
             ) 
             plt.text(x=0.95, y=0.90, ha='right', va='top', color='black', fontsize=14,
-                s=f'Total # of clones: ${len(res_div[cluster_names[cid]])} \;/\; 5000$', transform=plt.gca().transAxes
+                s=f'Total # of clones: ${len(res_div[cluster_names[cid]])} \;/\; {num_trails}$', transform=plt.gca().transAxes
             )
 
             if save:
@@ -130,13 +132,15 @@ def get_hex_colors(colormap='tab20'):
     return [to_hex(color) for color in colormap]
 
 def get_cell_idx(node, types='index', cluster_names=None):
+    length = 5
+
     for idx, item in enumerate(cluster_names):
         if item == node[:len(item)]:
             length = len(cluster_names[idx])
             break
 
     if types == 'index':
-        return int(item[length:])
+        return int(node[length:])
     if types == 'name':
         return node[:length]
 
@@ -219,10 +223,11 @@ def mean_division_to_first(mean_div_distributions, palette='tab20', save=False):
     df.index = index
 
     color = get_hex_colors(palette)
+    color = color * 2
     colors = [color[i + 1] for i, name in enumerate(df.columns)]
     ax = df.plot(kind='bar', stacked=False, figsize=(10, 5), width=0.8, color=colors)
 
-    plt.legend(bbox_to_anchor=(1, 0.9), frameon=False)
+    plt.legend(bbox_to_anchor=(1, 1.04), frameon=False)
     plt.xticks(rotation=90)
     plt.ylabel('# of divisions')
     plt.title('Mean # of divisions needed to produced the first progeny') 
@@ -230,17 +235,22 @@ def mean_division_to_first(mean_div_distributions, palette='tab20', save=False):
     if save:
         plt.savefig(f'./{save}.svg', dpi=600, bbox_inches='tight', transparent=False, facecolor='white')
 
-def succeed_trails_to_first(len_div_distributions, palette='tab20', save=False):
+def succeed_trails_to_first(len_div_distributions, num_trails=None, palette='tab20', save=False):
     df = pd.DataFrame(len_div_distributions)
+    df = df.div(np.max(df.values, axis=1), axis=0) if num_trails is None else df.div(num_trails, axis=0)
+
+    # df = df.applymap(lambda x: np.log(x + 1))
+
     index = [f'Clone {i}' for i in range(len(len_div_distributions))]
     index[-1] = 'Clone BG'
     df.index = index
 
     color = get_hex_colors(palette)
+    color = color * 2
     colors = [color[i + 1] for i, name in enumerate(df.columns)]
     ax = df.plot(kind='bar', stacked=False, figsize=(10, 5), width=0.8, color=colors)
 
-    plt.legend(bbox_to_anchor=(1, 0.9), frameon=False)
+    plt.legend(bbox_to_anchor=(1, 1.04), frameon=False)
     plt.ylabel('# of trails')
     plt.title('Potency preferance of HSCs for each population')
 

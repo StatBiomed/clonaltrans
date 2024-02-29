@@ -8,7 +8,7 @@ import os
 from itertools import product
 from utils import get_boots_K_total
 import seaborn as sns
-from .base import get_subplot_dimensions, interpolate_1d
+from tqdm import tqdm
 
 def plot_grid(data, axes, row, col, t_axis, label, color, size_samples, markers):
     if len(data) > 10:
@@ -61,10 +61,6 @@ def grid_visualize(
     t_observations = model.t_observed.detach().cpu().numpy()
     t_predictions = t_smoothed.detach().cpu().numpy()
 
-    std_inferred = get_variance(model, t_predictions)
-    lb, ub = predictions - std_inferred, predictions + std_inferred
-    lb, ub = np.clip(lb, 0, np.max(lb)), np.clip(ub, 0, np.max(ub))
-
     anno = pd.read_csv(os.path.join(model.config['data_loader']['args']['data_dir'], model.config['data_loader']['args']['annots']))
     try: sample_N = model.sample_N.cpu().numpy() 
     except: sample_N = np.ones(model.N.shape)
@@ -74,14 +70,6 @@ def grid_visualize(
     markers = ['none', 'o', '^', '*', 'X', '3', 's', 'd']
 
     for row, col in product(range(model.N.shape[1]), range(model.N.shape[2])):
-        axes[row][col].fill_between(
-            t_predictions,
-            lb[:, row, col],
-            ub[:, row, col],
-            color='lightskyblue',
-            alpha=0.5
-        )
-
         size_samples = sample_N[:, row, col]
         plot_grid(predictions, axes, row, col, t_predictions, 'Predictions', 'lightcoral', size_samples, markers)
         plot_grid(observations, axes, row, col, t_observations, 'Observations', '#2C6975', size_samples, markers)
@@ -110,8 +98,8 @@ def grid_visualize(
         legend_elements.insert(1, Line2D([0], [0], marker=markers[1], linestyle='', color='#A9A9A9', markersize=7))
         labels.insert(1, 'Sampled 0 time(s)')
 
-    legend_elements.append(Line2D([0], [0], color='lightskyblue', lw=4))
-    labels.append('mean $\pm$ 1 std')
+    # legend_elements.append(Line2D([0], [0], color='lightskyblue', lw=4))
+    # labels.append('mean $\pm$ 1 std')
 
     fig.legend(legend_elements, labels, loc='right', fontsize=15, bbox_to_anchor=(0.97, 0.5))
 
@@ -160,6 +148,73 @@ def parameter_ci(
     ]
     labels = ['Fitted', f'95% CI']
     plt.legend(legend_elements, labels, loc='best', fontsize=12)
+
+    if save:
+        plt.savefig(f'./{save}.svg', dpi=600, bbox_inches='tight', transparent=False, facecolor='white')
+
+def trajectory_range(
+    model_list, 
+    ref_model, 
+    device: str = 'cpu'
+):
+    model_list.append(ref_model)
+    pbar = tqdm(enumerate(model_list))
+    total_pred = []
+
+    for idx, model in pbar:
+        t_smoothed = torch.linspace(model.t_observed[0], model.t_observed[-1], 100).to(device)
+        y_pred = model.eval_model(t_smoothed)
+        total_pred.append(y_pred)
+    
+    return np.stack(total_pred), t_smoothed.detach().cpu().numpy()
+
+def trajectory_ci(
+    model_list,
+    ref_model,
+    device: str = 'cpu',
+    save: bool = False
+):
+    fig, axes = plt.subplots(ref_model.N.shape[1], ref_model.N.shape[2], figsize=(45, 20), sharex=True)
+    anno = pd.read_csv(os.path.join(ref_model.config['data_loader']['args']['data_dir'], ref_model.config['data_loader']['args']['annots'])) 
+
+    total_pred, t_smoothed = trajectory_range(model_list, ref_model, device=device)
+    lb, ub = np.percentile(total_pred, 25, axis=0), np.percentile(total_pred, 75, axis=0)
+    t_observed = ref_model.t_observed.detach().cpu().numpy()
+
+    data_names = ['Observations', 'Predictions', 'Q50']
+    sample_N = np.ones(ref_model.N.shape)
+    markers = ['none', 'o', '^', '*', 'X', '3', 's', 'd']
+
+    for row, col in product(range(ref_model.N.shape[1]), range(ref_model.N.shape[2])):
+        axes[row][col].fill_between(
+            t_smoothed,
+            lb[:, row, col],
+            ub[:, row, col],
+            color='lightskyblue',
+            alpha=0.5
+        )
+
+        size_samples = sample_N[:, row, col]
+        plot_grid(np.percentile(total_pred, 50, axis=0), axes, row, col, t_smoothed, 'Q50', '#929591', size_samples, markers)
+        plot_grid(total_pred[-1], axes, row, col, t_smoothed, 'Predictions', 'lightcoral', size_samples, markers)
+        plot_grid(ref_model.N, axes, row, col, t_observed, 'Observations', '#2C6975', size_samples, markers)
+
+        axes[0][col].set_title(anno['populations'][col])
+        axes[row][0].set_ylabel(anno['clones'][row])
+        axes[row][col].set_xticks(t_observed, labels=t_observed.astype(int), rotation=45)
+        axes[row][col].ticklabel_format(axis='y', style='sci', scilimits=(0, 4))
+
+    fig.subplots_adjust(hspace=0.5)
+    fig.subplots_adjust(wspace=0.5)
+
+    legend_elements = [
+        Line2D([0], [0], marker='o', color='#2C6975', markersize=7, linestyle=''), 
+        Line2D([0], [0], color='lightcoral', lw=2), 
+        Line2D([0], [0], color='lightskyblue', lw=2), 
+        Line2D([0], [0], color='#929591', lw=2)
+    ]
+    labels = ['Observations', 'Predictions', 'Q25 - Q75', 'Q50']
+    fig.legend(legend_elements, labels, loc='right', fontsize='x-large', bbox_to_anchor=(0.96, 0.5))
 
     if save:
         plt.savefig(f'./{save}.svg', dpi=600, bbox_inches='tight', transparent=False, facecolor='white')

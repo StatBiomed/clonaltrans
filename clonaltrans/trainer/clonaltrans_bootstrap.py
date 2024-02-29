@@ -25,6 +25,7 @@ class CloneTranModelBoots(nn.Module):
         self.N = N
         self.L = L
         self.D = torch.tensor(config['user_trainer']['no_proliferation_pops'])
+        self.A = torch.tensor(config['user_trainer']['no_apoptosis_pops'])
         self.model = model
 
         self.optimizer = optimizer
@@ -39,11 +40,6 @@ class CloneTranModelBoots(nn.Module):
         
         self.get_masks()
 
-        self.var_ub = torch.square(torch.maximum(
-            torch.max(self.N, 0)[0].unsqueeze(0) / 10, 
-            torch.tensor([1e-6]).to(self.gpu_id)
-        ))
-
     def get_masks(self):
         self.used_L = self.L.clone()
         self.used_L.fill_diagonal_(1)
@@ -51,7 +47,9 @@ class CloneTranModelBoots(nn.Module):
 
         self.oppo_L = (self.used_L == 0).to(torch.float32) # (c, p, p)
         self.zero_mask = (torch.sum(self.N, dim=0) == 0).to(torch.float32)
+        
         self.no_proliferate = self.D.unsqueeze(0).to(torch.float32).to(self.gpu_id)
+        self.no_apoptosis = self.A.unsqueeze(0).to(torch.float32).to(self.gpu_id)
 
     def combine_K1_K2(self, K1, K2):
         for clone, pop in product(range(K1.shape[0]), range(K1.shape[1])):
@@ -69,40 +67,33 @@ class CloneTranModelBoots(nn.Module):
 
     def get_matrix_K(self, K_type='const', eval=False, tpoint=1.0):
         if K_type == 'const':
-            return self._get_const_matrix_K(eval)
+            return self._get_const_matrix_K(eval, 'const')
 
         elif K_type == 'dynamic':
-            return self._get_dynamic_matrix_K(eval, tpoint)
+            return self._get_dynamic_matrix_K(eval, tpoint, 'dynamic')
 
-    def _get_const_matrix_K(self, eval):
+    def _get_const_matrix_K(self, eval, K_type):
         self.K1 = torch.square(self.model.block.K1) * self.model.block.K1_mask # (c, p, p)
         self.K2 = self.model.block.K2.squeeze() # (c, p)
 
         if eval:
             return self.combine_K1_K2(self.K1, self.K2)
         else:
-            return self._get_const_penalty(self.K1, self.K2)
+            return self._get_penalties(self.K1, self.K2, K_type)
 
-    def _get_const_penalty(self, K1, K2):
-        return self._get_flatten_values(K1, K2), \
-            self._get_zero_mask_values(K1, K2), \
-            self._get_no_proliferate_values(K2)
-
-    def _get_dynamic_matrix_K(self, eval, tpoint):
+    def _get_dynamic_matrix_K(self, eval, tpoint, K_type):
         if eval:
             self.K1, self.K2 = self.get_Kt(tpoint, self.model.block) # (c, p, p) and (c, p)
             return self.combine_K1_K2(self.K1, self.K2)
         else:
             self.K1, self.K2 = self.get_Kt_train(self.model.block) # (t, c, p, p) and (t, c, p)
-            return self._get_dynamic_penalty(self.K1, self.K2)
+            return self._get_penalties(self.K1, self.K2, K_type)
 
-    def _get_dynamic_penalty(self, res_K1_t, res_K2_t):
-        return self._get_flatten_values(res_K1_t, res_K2_t), \
-            torch.cat([
-                torch.flatten(res_K1_t * (self.N == 0).unsqueeze(-1).to(torch.float32)), 
-                torch.flatten(res_K2_t * (self.N == 0).to(torch.float32))
-            ]), \
-            self._get_no_proliferate_values(torch.sum(res_K2_t, dim=0))
+    def _get_penalties(self, K1, K2, K_type):
+        return self._get_flatten_values(K1, K2), \
+            self._get_zero_mask_values(K1, K2, K_type), \
+            self._get_no_proliferate_values(K2), \
+            self._get_no_apoptosis_values(K2)
 
     def _get_flatten_values(self, K1, K2):
         return torch.cat([
@@ -110,48 +101,41 @@ class CloneTranModelBoots(nn.Module):
             torch.flatten((K2 > self.config['user_trainer']['ub_for_prol']).to(torch.float32) * (K2 - self.config['user_trainer']['ub_for_prol']))
         ])
 
-    def _get_zero_mask_values(self, K1, K2):
-        return torch.cat([torch.flatten(K1 * self.zero_mask.unsqueeze(-1)), torch.flatten(K2 * self.zero_mask)])
+    def _get_zero_mask_values(self, K1, K2, K_type):
+        if K_type == 'const':
+            return torch.cat([torch.flatten(K1 * self.zero_mask.unsqueeze(-1)), torch.flatten(K2 * self.zero_mask)])
+        if K_type == 'dynamic':
+            return torch.cat([
+                torch.flatten(K1 * (self.N == 0).unsqueeze(-1).to(torch.float32)), 
+                torch.flatten(K2 * (self.N == 0).to(torch.float32))
+            ])
 
     def _get_no_proliferate_values(self, K2):
         return torch.flatten((K2 * self.no_proliferate > 0).to(torch.float32) * (K2 * self.no_proliferate))
+
+    def _get_no_apoptosis_values(self, K2):
+        return torch.flatten((K2 * self.no_apoptosis < 0).to(torch.float32) * (K2 * self.no_apoptosis))
 
     def freeze_model_parameters(self):
         for param in self.model.parameters():
             param.requires_grad = False
 
-    def compute_obs_loss(self, epoch, thres):
+    def compute_obs_loss(self):
         loss_obs = 0.0
-
         for i in range(1, self.N.shape[0]):
-            if epoch > thres:
-                std_reshape = torch.broadcast_to(self.model.block.std, self.N.shape)
-                loss_obs += GaussianNLL(self.N[i] * self.sample_N[i], self.y_pred[i] * self.sample_N[i], torch.square(std_reshape[i] * self.scaling_factor[i]))
-
-            else:
-                loss_obs += PoissonNLL(self.y_pred[i] * self.sample_N[i] / self.scaling_factor[i], self.N[i] * self.sample_N[i] / self.scaling_factor[i])
-
+            loss_obs += PoissonNLL(self.y_pred[i] * self.sample_N[i] / self.scaling_factor[i], self.N[i] * self.sample_N[i] / self.scaling_factor[i])
         return loss_obs
 
     def compute_penalty_terms(
         self, 
-        epoch, 
-        thres, 
-        pena_ub, 
-        pena_pop_zero, 
-        pena_k2_proli, 
-        l4=torch.tensor(0.0, dtype=torch.float32)
+        p_uppb, 
+        p_zero, 
+        p_prol,
+        p_apop
     ):
-        l1 = self.config['user_trainer']['alpha_1'] * torch.sum(pena_ub)
-        l2 = self.config['user_trainer']['alpha_2'] * torch.linalg.norm(pena_k2_proli, ord=1)
-        l3 = self.config['user_trainer']['alpha_3'] * torch.linalg.norm(pena_pop_zero, ord=2)
-
-        if epoch > thres:
-            l4 = torch.flatten((
-                torch.square(self.model.block.std) > self.var_ub).to(torch.float32) 
-                * (torch.square(self.model.block.std) - self.var_ub)
-            )
-            l4 = self.config['user_trainer']['alpha_4'] * torch.linalg.norm(l4, ord=1)
+        l0 = self.config['user_trainer']['alphas'][0] * torch.sum(p_uppb)
+        l1 = self.config['user_trainer']['alphas'][1] * torch.linalg.norm(p_prol, ord=1)
+        l2 = self.config['user_trainer']['alphas'][2] * torch.linalg.norm(p_zero, ord=2)
 
         K_total = []
         for idx, time in enumerate(self.t_observed):
@@ -172,51 +156,47 @@ class CloneTranModelBoots(nn.Module):
             K_total.append(K)
         
         K_total = torch.stack(K_total)
-        l5 = torch.mean(K_total[:, :-1, :, :], dim=1).flatten() - K_total[:, -1, :, :].flatten()
-        l5 = self.config['user_trainer']['alpha_5'] * torch.linalg.norm(l5, ord=1)
+        l3 = torch.mean(K_total[:, :-1, :, :], dim=1).flatten() - K_total[:, -1, :, :].flatten()
+        l3 = self.config['user_trainer']['alphas'][3] * torch.linalg.norm(torch.abs(l3), ord=1)
 
-        l6 = torch.flatten((K_total < 0).to(torch.float32) * K_total)
-        l6 = self.config['user_trainer']['alpha_6'] * torch.linalg.norm(torch.abs(l6), ord=2)
+        l4 = torch.flatten((K_total < 0).to(torch.float32) * K_total) / 4
+        l4 = self.config['user_trainer']['alphas'][4] * torch.linalg.norm(torch.abs(l4), ord=2)
 
-        return l1, l2, l3, l4, l5, l6
+        l5 = self.config['user_trainer']['alphas'][5] * torch.linalg.norm(p_apop, ord=1)
+        return l0, l1, l2, l3, l4, l5
 
     def compute_loss(self, epoch, pbar):
-        pena_ub, pena_pop_zero, pena_k2_proli = self.get_matrix_K(K_type=self.K_type)
-        thres = self.config['optimizer']['thres']
+        p_uppb, p_zero, p_prol, p_apop = self.get_matrix_K(K_type=self.K_type)
 
-        if epoch == thres:
+        if False:
             self.freeze_model_parameters()
-            self.model.block.std.requires_grad = True
 
-        loss_obs = self.compute_obs_loss(epoch, thres)
-        l1, l2, l3, l4, l5, l6 = self.compute_penalty_terms(
-            epoch, 
-            thres,
-            pena_ub, 
-            pena_pop_zero, 
-            pena_k2_proli
+        loss_obs = self.compute_obs_loss()
+        l0, l1, l2, l3, l4, l5 = self.compute_penalty_terms(
+            p_uppb, 
+            p_zero, 
+            p_prol,
+            torch.abs(p_apop)
         )
 
-        loss_des = (SmoothL1(self.y_pred[1], self.N[1]) / self.scaling_factor[1]).item() \
-            + (SmoothL1(self.y_pred[2], self.N[2]) / self.scaling_factor[2]).item() \
-            + (SmoothL1(self.y_pred[3], self.N[3]) / self.scaling_factor[3]).item()
-
         descrip = pbar_tb_description(
-            ['ID', 'L/Upper', 'L/K2Pro', 'L/Pop0', 'L/DiffBG', 'L/Neg0', 'L/Total'],
-            [
+            ['ID', 'L/K2Pro', 'L/Pop0', 'L/DiffBG', 'L/Neg0', 'L/Apop', 'L/L3', 'L/L10', 'L/L17'],
+            [ 
                 self.model_id, 
-                l1.item() / self.config['user_trainer']['alpha_1'], 
-                l2.item() / self.config['user_trainer']['alpha_2'],
-                l3.item() / self.config['user_trainer']['alpha_3'],
-                l5.item() / self.config['user_trainer']['alpha_5'],
-                l6.item() / self.config['user_trainer']['alpha_6'],
-                loss_des
+                l1.item() / self.config['user_trainer']['alphas'][1],
+                l2.item() / self.config['user_trainer']['alphas'][2],
+                l3.item() / self.config['user_trainer']['alphas'][3],
+                l4.item() / self.config['user_trainer']['alphas'][4],
+                l5.item() / self.config['user_trainer']['alphas'][5],
+                (SmoothL1(self.y_pred[1], self.N[1]) / self.scaling_factor[1]).item(),
+                (SmoothL1(self.y_pred[2], self.N[2]) / self.scaling_factor[2]).item(),
+                (SmoothL1(self.y_pred[3], self.N[3]) / self.scaling_factor[3]).item()
             ],
             epoch, None
         )
         pbar.set_description(descrip)
 
-        loss = loss_obs + l4 if epoch > thres else loss_obs + l1 + l2 + l3 + l4 + l5 + l6
+        loss = loss_obs + l0 + l1 + l2 + l3 + l4 + l5
         loss.backward()
         return loss
 
