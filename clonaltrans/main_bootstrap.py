@@ -31,6 +31,8 @@ class Bootstrapping(nn.Module):
         self.logger = logger
         self.save_dir = config.save_dir
 
+        os.mkdir(os.path.join(self.save_dir, 'models'))
+
         self.concurrent = config['concurrent']
         self.epoch = config['epoch']
         self.used_gpu_ids = config['system']['gpu_id']
@@ -130,7 +132,7 @@ class Bootstrapping(nn.Module):
             except: trainer.trainable = False
 
             if trainer.trainable:
-                torch.save(trainer, os.path.join(self.save_dir, f'{trainer.model_id}.pt'))
+                torch.save(trainer, os.path.join(self.save_dir, 'models', f'{trainer.model_id}.pt'))
 
 def run_model(config):
     set_seed(config['system']['seed'])

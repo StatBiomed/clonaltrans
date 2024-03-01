@@ -30,7 +30,7 @@
         "t_observed": [0, 2, 4, 6],
         "scaling_factor": [1, 1.0808, 3.1616, 8.7108],
         "ub_for_prol": 6,
-        "ub_for_diff": 10
+        "ub_for_diff": 6
     },    
 
     "optimizer": {

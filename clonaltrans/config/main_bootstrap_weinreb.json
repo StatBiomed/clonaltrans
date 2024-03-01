@@ -4,7 +4,7 @@
     "calibrate": false,
 
     "system": {
-        "gpu_id": [0, 1, 2, 4, 5],
+        "gpu_id": [0, 1, 2, 4, 5, 6, 7],
         "seed": 42
     },
 
@@ -12,8 +12,8 @@
         "save_dir": "/ssd/users/mingzegao/clonaltrans/trails"
     },
 
-    "model_path": "/ssd/users/mingzegao/clonaltrans/trails/checkpoints/WeinrebDynamicRates/0229_121641/model_last.pt",
-    "concurrent": 25,
-    "epoch": 20
+    "model_path": "/ssd/users/mingzegao/clonaltrans/trails/checkpoints/WeinrebDynamicRates/0301_112802/model_last.pt",
+    "concurrent": 35,
+    "epoch": 12
 
 }

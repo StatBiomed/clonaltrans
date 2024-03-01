@@ -35,12 +35,15 @@ def mse_corr(model, save=False):
         title = f'Time {model.t_observed[n]} Loss {loss.item():.3f} Corr {spear:.3f} '
         
         ax_loc = axes[(n - 1) // cols][(n - 1) % cols] if rows > 1 else axes[n - 1]
-        sns.scatterplot(x=x.numpy().flatten(), y=y.numpy().flatten(), s=20, ax=ax_loc)
+        ax_loc.plot([x.min(), x.max()], [x.min(), x.max()], linestyle="--", color="grey")
+        sns.scatterplot(x=x.numpy().flatten().astype(int), y=y.numpy().flatten().astype(int), s=20, ax=ax_loc)
 
         ax_loc.set_title(title)
         ax_loc.set_xlabel(f'Observations')
         ax_loc.set_ylabel(f'Predictions')
-        ax_loc.ticklabel_format(axis='both', style='sci', scilimits=(0, 4))
+        # ax_loc.ticklabel_format(axis='both', style='sci', scilimits=(0, 4))
+        ax_loc.set_yscale('log')
+        ax_loc.set_xscale('log')
 
     if save:
         plt.savefig(f'./figs/{save}.png', dpi=300, bbox_inches='tight', transparent=False, facecolor='white')

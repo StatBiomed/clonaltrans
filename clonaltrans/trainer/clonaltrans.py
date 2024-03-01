@@ -104,6 +104,7 @@ class CloneTranModel(nn.Module):
     def _get_zero_mask_values(self, K1, K2, K_type):
         if K_type == 'const':
             return torch.cat([torch.flatten(K1 * self.zero_mask.unsqueeze(-1)), torch.flatten(K2 * self.zero_mask)])
+        
         if K_type == 'dynamic':
             return torch.cat([
                 torch.flatten(K1 * (self.N == 0).unsqueeze(-1).to(torch.float32)), 
@@ -157,9 +158,9 @@ class CloneTranModel(nn.Module):
         
         K_total = torch.stack(K_total)
         l3 = torch.mean(K_total[:, :-1, :, :], dim=1).flatten() - K_total[:, -1, :, :].flatten()
-        l3 = self.config['user_trainer']['alphas'][3] * torch.linalg.norm(l3, ord=1)
+        l3 = self.config['user_trainer']['alphas'][3] * torch.linalg.norm(torch.abs(l3), ord=1)
 
-        l4 = torch.flatten((K_total < 0).to(torch.float32) * K_total)
+        l4 = torch.flatten((K_total < 0).to(torch.float32) * K_total) / 2
         l4 = self.config['user_trainer']['alphas'][4] * torch.linalg.norm(torch.abs(l4), ord=2)
 
         l5 = self.config['user_trainer']['alphas'][5] * torch.linalg.norm(p_apop, ord=1)
