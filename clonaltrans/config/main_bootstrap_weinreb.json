@@ -14,6 +14,6 @@
 
     "model_path": "/ssd/users/mingzegao/clonaltrans/trails/checkpoints/WeinrebDynamicRates/0301_112802/model_last.pt",
     "concurrent": 35,
-    "epoch": 12
+    "epoch": 20
 
 }

@@ -133,6 +133,8 @@ class Bootstrapping(nn.Module):
 
             if trainer.trainable:
                 torch.save(trainer, os.path.join(self.save_dir, 'models', f'{trainer.model_id}.pt'))
+        
+        torch.cuda.empty_cache()
 
 def run_model(config):
     set_seed(config['system']['seed'])

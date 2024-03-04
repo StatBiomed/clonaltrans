@@ -26,6 +26,8 @@ class GillespieDivision():
         self.save_dir = config.save_dir
         self.config = config
 
+        os.mkdir(os.path.join(self.save_dir, 'models'))
+
         self.K_total = K_total # (num_time_points, num_clones, num_pops, num_pops)
         self.time_all = time_all
         self.logger = logger
@@ -44,7 +46,7 @@ class GillespieDivision():
 
         for clone in pbar:
             self.logger.info(f'Start multiprocessing for meta-clone {clone} at {time.asctime()}.')
-            gillespie_dir = os.path.join(self.save_dir, f'clone_{clone}')
+            gillespie_dir = os.path.join(self.save_dir, 'models', f'clone_{clone}')
             if not os.path.exists(gillespie_dir):
                 os.mkdir(gillespie_dir)
 

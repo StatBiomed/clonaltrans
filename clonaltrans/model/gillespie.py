@@ -63,12 +63,12 @@ def gillespie_main(
 ):
     set_seed(seed)
 
-    if os.path.exists(f'./{gillespie_dir}/occurred_{seed}.csv'):
-        os.remove(f'./{gillespie_dir}/occurred_{seed}.csv')
+    if os.path.exists(f'{gillespie_dir}/occurred_{seed}.csv'):
+        os.remove(f'{gillespie_dir}/occurred_{seed}.csv')
     if os.path.exists(f'{gillespie_dir}/structure_{seed}.txt'):
         os.remove(f'{gillespie_dir}/structure_{seed}.txt')
-    if os.path.exists(f'./{gillespie_dir}/num_cells_{seed}.csv'):
-        os.remove(f'./{gillespie_dir}/num_cells_{seed}.csv')
+    if os.path.exists(f'{gillespie_dir}/num_cells_{seed}.csv'):
+        os.remove(f'{gillespie_dir}/num_cells_{seed}.csv')
 
     M, rates, number_diff_rates = gillespie_rates(K_total[0], L, init=True)
     occurred_reactions = np.zeros(len(rates))
