@@ -98,7 +98,9 @@ def get_boots_K_total(model_list, ref_model=None, K_type='const', tpoint=1.0):
     masks = get_post_masks(ref_model, tpoint)
     ref_K = ref_model.get_matrix_K(K_type=K_type, eval=True, tpoint=tpoint).detach().cpu().numpy()
     ref_K[masks[0], masks[1], :] = 0
-    return np.stack(total_K), ref_K # (b, c, p, p) (c, p, p)
+
+    total_K = np.stack(total_K)
+    return total_K, ref_K # (b, c, p, p) (c, p, p)
 
 def clone_rates_diff_test(ref_model, total_K, correct_method='fdr_bh'):
     paga = pd.read_csv(os.path.join(
@@ -111,6 +113,9 @@ def clone_rates_diff_test(ref_model, total_K, correct_method='fdr_bh'):
     stats_tests = np.zeros((int(num_clone * (num_clone - 1) / 2), num_pop, num_pop))
     stats_tests[stats_tests == 0] = 'nan'
 
+    fold_change = np.zeros((int(num_clone * (num_clone - 1) / 2), num_pop, num_pop))
+    fold_change[fold_change == 0] = 'nan'
+
     count = 0
     for (c1, c2) in combinations(range(num_clone), 2):
         for pop1, pop2 in product(range(num_pop), range(num_pop)):
@@ -118,6 +123,8 @@ def clone_rates_diff_test(ref_model, total_K, correct_method='fdr_bh'):
             if paga[pop1, pop2] == 1:
                 K_c1 = total_K[:, c1, pop1, pop2]
                 K_c2 = total_K[:, c2, pop1, pop2]
+
+                fold_change[count, pop1, pop2] = np.mean(np.abs(K_c1 - K_c2))
 
                 K_c1 = K_c1[(K_c1 > np.percentile(K_c1, 2.5)) & (K_c1 < np.percentile(K_c1, 97.5))]
                 K_c2 = K_c2[(K_c2 > np.percentile(K_c2, 2.5)) & (K_c2 < np.percentile(K_c2, 97.5))]
@@ -141,11 +148,15 @@ def clone_rates_diff_test(ref_model, total_K, correct_method='fdr_bh'):
     nan_cols = np.isnan(stats_correct).any(axis=0)
     stats_correct = stats_correct[:, ~nan_cols]
 
+    fold_correct = fold_change.reshape((fold_change.shape[0], fold_change.shape[1] * fold_change.shape[1]))
+    nan_cols = np.isnan(fold_correct).any(axis=0)
+    fold_correct = fold_correct[:, ~nan_cols]
+
     adjusted_p_values = []
     for i in range(stats_correct.shape[1]):
         adjusted_p_values.append(smm.multipletests(stats_correct[:, i], method=correct_method)[1])
 
-    return stats_tests, np.stack(adjusted_p_values)
+    return stats_tests, np.stack(adjusted_p_values), fold_correct.T
 
 def get_boots_K_total_with_time(model_list, ref_model=None, tpoints=None):
     K_total = []

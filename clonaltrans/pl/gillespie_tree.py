@@ -13,8 +13,12 @@ import seaborn as sns
 import numpy as np
 from scipy import stats
 import pandas as pd
-from itertools import combinations
+from itertools import combinations, product
 import statsmodels.stats.multitest as smm
+from .metrics import get_clustered_heatmap
+from .base import get_subplot_dimensions
+import copy
+from natsort import natsorted
 
 def get_div_distribution(gillespie_dir, cluster_names):
     div_path = os.path.join(gillespie_dir, 'res_div.txt')
@@ -23,7 +27,7 @@ def get_div_distribution(gillespie_dir, cluster_names):
     num_trails = 0
 
     with open(div_path, 'r') as f:
-        for idx, line in tqdm(enumerate(f)):
+        for idx, line in enumerate(f):
             line = line.split('\n')[0]
             line = json.loads(line)
             line = ast.literal_eval(line)
@@ -35,35 +39,63 @@ def get_div_distribution(gillespie_dir, cluster_names):
     
     return res_div, num_trails
 
-def visualize_num_div(cluster_names, gillespie_dir, palette='tab20', save=False):
+def visualize_num_div(
+    cluster_names,
+    gillespie_dir, 
+    clone_id=5,
+    palette='tab20', 
+    save=False
+):
     res_div, num_trails = get_div_distribution(gillespie_dir, cluster_names)
     colors = get_hex_colors(palette)
     colors = colors * 2
-    clone = gillespie_dir.split('/')[-2]
+    clone = gillespie_dir.split('/')[-1]
+
+    # rows, cols, figsize = get_subplot_dimensions(len(cluster_names) - 1, max_cols=max_cols, fig_height_per_row=4)
+    # fig, axes = plt.subplots(rows, cols, figsize=(figsize[0] + 5, figsize[1] + 10))
+    # fig.suptitle(f'Quantitative lens of division summary given a HSC_MPP for {os.path.split(gillespie_dir)[1]}', fontsize=22)
+    # plt.subplots_adjust(top=0.93)
 
     for cid in range(1, len(cluster_names)):
         if res_div[cluster_names[cid]] != []:
-            fig, axes = plt.subplots(1, 1, figsize=(6, 6))
+            # ax_loc = axes[(cid - 1) // cols][(cid - 1) % cols] if rows > 1 else axes[cid - 1]
             
-            sns.histplot(res_div[cluster_names[cid]], ax=axes, color=colors[cid], bins=50)
-            axes.set_title(cluster_names[cid], fontsize=14)
-            axes.set_ylabel('# of seed trails', fontsize=13)
-            axes.set_xlabel('# of divisions from a HSC', fontsize=13)
+            # sns.histplot(res_div[cluster_names[cid]], ax=ax_loc, color=colors[cid])
+            # ax_loc.set_title(cluster_names[cid], fontsize=20)
 
-            axes.spines['top'].set_visible(False)
-            axes.spines['right'].set_visible(False)
-            # axes.set_xticks(fontsize=13)
-            # axes.set_yticks(fontsize=13)
+            # ax_loc.axvline(
+            #     np.round(np.mean(res_div[cluster_names[cid]]), 2), 
+            #     linestyle='--', 
+            #     color='black', 
+            #     linewidth=3,
+            #     ymax=0.7
+            # )
 
-            plt.text(x=0.95, y=0.95, ha='right', va='top', color='black', fontsize=14,
-                s=f'Mean # of divisions: ${np.mean(res_div[cluster_names[cid]]):.2f}$', transform=plt.gca().transAxes
-            ) 
-            plt.text(x=0.95, y=0.90, ha='right', va='top', color='black', fontsize=14,
-                s=f'Total # of clones: ${len(res_div[cluster_names[cid]])} \;/\; {num_trails}$', transform=plt.gca().transAxes
+            # axes[(cid - 1) // cols][(cid - 1) % cols].set_ylabel('# of trails', fontsize=18)
+            # axes[(cid - 1) // cols][(cid - 1) % cols].set_xlabel('# of divisions', fontsize=18)
+
+            # if (cid - 1) % cols != 0:
+                # axes[(cid - 1) // cols][(cid - 1) % cols].set_ylabel('')
+
+            ax = sns.histplot(res_div[cluster_names[cid]], color=colors[cid])
+            ax.spines['top'].set_visible(False)
+            ax.spines['right'].set_visible(False)
+            ax.tick_params(axis='both', labelsize=18)
+
+            fig = ax.get_figure()
+            fig.set_figwidth(6) 
+            fig.set_figheight(6)
+
+            plt.title(f'{cluster_names[cid]} (Meta-clone {clone_id})', fontsize=20)
+            plt.xlabel('# of divisions', fontsize=18)
+            plt.ylabel('# of trails', fontsize=18)
+            plt.text(x=0.93, y=0.92, ha='right', va='top', color='black', fontsize=18,
+                s=f'Mean: ${np.round(np.mean(res_div[cluster_names[cid]]), 2)}$', transform=ax.transAxes
             )
 
             if save:
                 plt.savefig(f'./gdist_{clone}_{cluster_names[cid]}.svg', dpi=600, bbox_inches='tight', transparent=False, facecolor='white')
+                plt.close()
 
 def get_divisions(target_path, cluster_names):
     target_path_names = [get_cell_idx(i, types='name', cluster_names=cluster_names) for i in target_path]
@@ -207,8 +239,8 @@ def visualize_gtree(
         )
 
         patches = [plt.plot([], [], marker='o', ls='', color=color, markersize=13)[0] for color in cluster_colors.values()] 
-        plt.legend(patches, cluster_colors.keys(), bbox_to_anchor=(1, 0.9), fontsize=23, frameon=False)
-        plt.title(f'Tree structure of seed {seed}', fontsize=23)
+        plt.legend(patches, cluster_colors.keys(), bbox_to_anchor=(1, 0.95), fontsize=23, frameon=False)
+        plt.title(f'Simulated differentiation structure of seed {seed} | {os.path.split(gillespie_dir)[1]}', fontsize=23)
 
         if save:
             plt.savefig(f'./gillespie_tree_{seed}.svg', dpi=600, bbox_inches='tight', transparent=False, facecolor='white')
@@ -218,41 +250,50 @@ def visualize_gtree(
 
 def mean_division_to_first(mean_div_distributions, palette='tab20', save=False):
     df = pd.DataFrame(mean_div_distributions)
-    index = [f'Clone {i}' for i in range(len(mean_div_distributions))]
-    index[-1] = 'Clone BG'
+    index = [f'{i}' for i in range(len(mean_div_distributions))]
+    index[-1] = 'BG'
     df.index = index
 
     color = get_hex_colors(palette)
     color = color * 2
     colors = [color[i + 1] for i, name in enumerate(df.columns)]
-    ax = df.plot(kind='bar', stacked=False, figsize=(10, 5), width=0.8, color=colors)
+    ax = df.plot(kind='bar', stacked=False, figsize=(40, 10), width=0.9, color=colors)
 
-    plt.legend(bbox_to_anchor=(1, 1.04), frameon=False)
-    plt.xticks(rotation=90)
-    plt.ylabel('# of divisions')
-    plt.title('Mean # of divisions needed to produced the first progeny') 
+    plt.legend(bbox_to_anchor=(0.95, -0.05), frameon=False, fontsize=28, ncol=7)
+    plt.xticks(rotation=0, fontsize=28)
+    plt.yticks(fontsize=28)
+    plt.title('Mean # of divisions needed for producing the first progeny given a HSC_MPP for each meta-clone', fontsize=32, pad=5) 
+    plt.tick_params(axis='both', which='both', width=2, length=10)
+
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
 
     if save:
         plt.savefig(f'./{save}.svg', dpi=600, bbox_inches='tight', transparent=False, facecolor='white')
 
 def succeed_trails_to_first(len_div_distributions, num_trails=None, palette='tab20', save=False):
     df = pd.DataFrame(len_div_distributions)
-    df = df.div(np.max(df.values, axis=1), axis=0) if num_trails is None else df.div(num_trails, axis=0)
+    # df = df.div(np.max(df.values, axis=1), axis=0) if num_trails is None else df.div(num_trails, axis=0) * 100
+    # df = df.map(lambda x: np.log(x + 1))
 
-    # df = df.applymap(lambda x: np.log(x + 1))
-
-    index = [f'Clone {i}' for i in range(len(len_div_distributions))]
-    index[-1] = 'Clone BG'
+    index = [f'{i}' for i in range(len(len_div_distributions))]
+    index[-1] = 'BG'
     df.index = index
 
     color = get_hex_colors(palette)
     color = color * 2
     colors = [color[i + 1] for i, name in enumerate(df.columns)]
-    ax = df.plot(kind='bar', stacked=False, figsize=(10, 5), width=0.8, color=colors)
+    ax = df.plot(kind='bar', stacked=False, figsize=(40, 10), width=0.9, color=colors)
 
-    plt.legend(bbox_to_anchor=(1, 1.04), frameon=False)
-    plt.ylabel('# of trails')
-    plt.title('Potency preferance of HSCs for each population')
+    plt.legend(bbox_to_anchor=(0.9, -0.05), frameon=False, fontsize=30, ncol=5)
+    plt.xticks(rotation=0, fontsize=30)
+    plt.yticks([0, 200, 400, 600, 800, 1000], fontsize=30)
+    plt.ylabel(f'# of simulation trails', fontsize=40)
+    plt.title('Potency preferance for each meta-clone given a HSC_MPP', fontsize=40, pad=0)
+    plt.tick_params(axis='both', which='both', width=2, length=10)
+
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
 
     if save:
         plt.savefig(f'./{save}.svg', dpi=600, bbox_inches='tight', transparent=False, facecolor='white')
@@ -268,39 +309,151 @@ def clone_dist_diff_plot(div_distributions, ref_model, correct_method='holm', sa
                 div_c1 = div_distributions[c1][pop]
                 div_c2 = div_distributions[c2][pop]
 
-                if len(div_c1) >= 3 and len(div_c2) >= 3:
-                    _, shapiro_p_c1 = stats.shapiro(div_c1)
-                    _, shapiro_p_c2 = stats.shapiro(div_c2)
+                stats_tests[count, idx_pop] = np.mean(div_c1) / np.mean(div_c2) if len(div_c1) > 10 and len(div_c2) > 10 else np.nan
 
-                    if shapiro_p_c1 > 0.05 and shapiro_p_c2 > 0.05:
-                        _, paired_p = stats.ttest_ind(div_c1, div_c2) 
-                        stats_tests[count, idx_pop] = paired_p
-                    else:
-                        _, wilcox_p = stats.mannwhitneyu(div_c1, div_c2)
-                        stats_tests[count, idx_pop] = wilcox_p
+                # if len(div_c1) >= 3 and len(div_c2) >= 3:
+                #     _, shapiro_p_c1 = stats.shapiro(div_c1)
+                #     _, shapiro_p_c2 = stats.shapiro(div_c2)
+
+                #     if shapiro_p_c1 > 0.05 and shapiro_p_c2 > 0.05:
+                #         _, paired_p = stats.ttest_ind(div_c1, div_c2) 
+                #         stats_tests[count, idx_pop] = paired_p
+                #     else:
+                #         _, wilcox_p = stats.mannwhitneyu(div_c1, div_c2)
+                #         stats_tests[count, idx_pop] = wilcox_p
         count += 1
 
         if c1 == num_clone - 1:
             c1 = 'BG'
         if c2 == num_clone - 1:
             c2 = 'BG'
-        index.append(f'Clone {c1} / {c2}')
+        index.append(f'{c1} / {c2}')
 
-    adjusted_p_values = []
-    for i in range(stats_tests.shape[1]):
-        adjusted_p_values.append(smm.multipletests(stats_tests[:, i], method=correct_method)[1])
+    # adjusted_p_values = []
+    # for i in range(stats_tests.shape[1]):
+    #     adjusted_p_values.append(smm.multipletests(stats_tests[:, i], method=correct_method)[1])
 
-    fig, axes = plt.subplots(figsize=(50, 15))
-    adjusted_p_values = np.stack(adjusted_p_values)
-    adjusted_p_values[adjusted_p_values > 0.05] = np.nan
+    fig, axes = plt.subplots(figsize=(55, 12))
+    # adjusted_p_values = np.stack(adjusted_p_values)
+    # adjusted_p_values[adjusted_p_values > 0.01] = np.nan
 
-    df = pd.DataFrame(data=-np.log10(adjusted_p_values), index=list(div_distributions[0].keys()), columns=index)
-    ax = sns.heatmap(df, annot=False, linewidths=.5, cmap='viridis')
-    plt.title('$-log_{10}$ p-values of # of divisions needed across meta-clones & populations')
-    plt.xticks(rotation=90)
+    # df = pd.DataFrame(data=-np.log10(adjusted_p_values), index=list(div_distributions[0].keys()), columns=index)
+    df = pd.DataFrame(data=stats_tests.T, index=list(div_distributions[0].keys()), columns=index)
+    # df = df.filter(like='BG')
+    # df = get_clustered_heatmap(df)
+
+    ax = sns.heatmap(df, annot=False, linewidths=.1, cmap='coolwarm', xticklabels=True, yticklabels=True, cbar=True, vmin=0, vmax=3)
+    # plt.title('$-log_{10}$ p-values of # of divisions', fontsize=18, pad=15)
+    plt.title('Fold change of mean # of division events needed', fontsize=30, pad=15)
+    plt.xticks(fontsize=25, rotation=90)
+    plt.yticks(fontsize=25)
 
     cbar = ax.collections[0].colorbar
-    cbar.ax.tick_params(labelsize=14)
+    cbar.ax.tick_params(labelsize=25)
 
     if save:
         plt.savefig(f'./{save}.svg', dpi=600, bbox_inches='tight', transparent=False, facecolor='white')
+
+def find_successive_ones(df, row_index):
+    cols_with_one = df.columns[df.loc[row_index] == 1].tolist()
+    result = copy.deepcopy(cols_with_one)
+    
+    while cols_with_one:
+        next_cols_with_one = []
+        for item in cols_with_one:
+            next_cols_with_one.extend(df.columns[df.loc[item] == 1].tolist())
+        
+        result.extend(next_cols_with_one)
+        cols_with_one = next_cols_with_one
+    
+    return natsorted(list(set(result)))
+
+def get_descendents(model, label, gillespie_dir):
+    data = []
+    result_path = os.path.join(gillespie_dir, 'res_div.txt')
+    paga = pd.read_csv(os.path.join(
+        model.config['data_loader']['args']['data_dir'], model.config['data_loader']['args']['graphs'],
+    ), index_col=0).astype(np.int32)
+    
+    with open(result_path, 'r') as f:
+        for line in f.readlines():            
+            if not line:
+                continue
+            
+            line = line.strip()
+            line = ast.literal_eval(line)
+            line = eval(line)
+
+            if label in line.keys():
+                data.append(line)
+    
+    descendents = find_successive_ones(paga, label)
+    
+    return data, descendents
+
+def get_fate_prob(model, cluster_names, gillespie_dir):
+    aggre = dict()
+        
+    for directory in natsorted(os.listdir(gillespie_dir)):
+        if directory.startswith('clone'):
+            gillespie_dir_clones = os.path.join(gillespie_dir, directory)
+            aggre[directory] = {}
+
+            distribution, counts = get_div_distribution(gillespie_dir_clones, cluster_names)
+            for key in distribution.keys():
+                distribution[key] = len(distribution[key]) / counts
+
+            aggre[directory][cluster_names[0]] = distribution
+            # aggre[directory][cluster_names[0]] = [list(distribution.keys()), list(distribution.values())]
+
+            for label in cluster_names[1:]:
+                data, des = get_descendents(model, label, gillespie_dir=gillespie_dir_clones)
+
+                if len(des) >= 2:
+                    num = np.zeros(len(des))
+                    for idx, child in enumerate(des):
+                        num[idx] += np.sum([True if child in trail.keys() else False for trail in data])
+
+                    aggre[directory][label] = dict(zip(des, list(num / len(data)) if len(data) != 0 else list(num)))
+                    # aggre[directory][label] = [des, list(num / len(data)) if len(data) != 0 else list(num)]
+
+    return aggre
+
+def get_fate_prec(aggre):
+    res = dict()
+    for clone, pop in product(aggre.keys(), aggre[list(aggre.keys())[0]].keys()):
+        if pop not in res.keys():
+            res[pop] = [list(aggre[clone][pop].keys()), [list(aggre[clone][pop].values())]]
+        else:
+            res[pop][1].append(list(aggre[clone][pop].values()))
+    
+    return res
+
+def pl_fate_prob(aggre, label, logy=False, palette='tab20', save=False):
+    results = get_fate_prec(aggre)
+    
+    if label in results.keys():
+        results = results[label]
+
+        color = get_hex_colors(palette)
+        colors = color * 2
+
+        columns = [f'Clone {idx}' for idx in range(len(aggre.keys()))]
+        columns[-1] = 'Clone BG'
+
+        df = pd.DataFrame(data=results[1], columns=results[0], index=columns)
+        ax = df.plot(kind='bar', stacked=False, figsize=(40, 10), width=0.9, color=colors)
+
+        plt.xticks(rotation=0, fontsize=25)
+        plt.yticks(fontsize=25)
+        # plt.title(f'# of progenies produced given an ancester population ({label}) in percentage view', fontsize=28, pad=13)
+        plt.title(f'# actual clones for each progeny cluster given an ancester population ({label})', fontsize=28, pad=13)
+        plt.legend(bbox_to_anchor=(0.9, -0.1), frameon=False, fontsize=25, ncol=7)
+        plt.tick_params(axis='both', which='both', width=2, length=10)
+
+        if logy:
+            plt.yscale('log')
+            plt.legend(frameon=False, fontsize=22, ncol=1 if len(results[0]) < 10 else 2)
+
+        if save:
+            plt.savefig(f'./{save}.svg', dpi=300, bbox_inches='tight', transparent=False, facecolor='white')

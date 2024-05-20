@@ -1,0 +1,15 @@
+{
+    "name": "CordBloodDynamicGillespie",
+    "logger_config_path": "/ssd/users/mingzegao/clonaltrans/clonaltrans/config/logger_config.json",
+    "model_path": "/ssd/users/mingzegao/clonaltrans/trails/checkpoints/CordBloodDynamicRates/0322_185055/model_last.pt",
+
+    "time_interval": 0.01,
+    "concurrent": 20,
+    "epoch": 50,
+    "t_cutoff": 1e-4,
+
+    "base_trainer": {
+        "save_dir": "/ssd/users/mingzegao/clonaltrans/trails"
+    }
+
+}

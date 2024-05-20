@@ -9,6 +9,7 @@ from itertools import product
 from utils import get_boots_K_total
 import seaborn as sns
 from tqdm import tqdm
+import matplotlib.ticker as ticker
 
 def plot_grid(data, axes, row, col, t_axis, label, color, size_samples, markers):
     if len(data) > 10:
@@ -51,7 +52,7 @@ def grid_visualize(
     save: bool = False
 ):
     model = model.to(device)
-    fig, axes = plt.subplots(model.N.shape[1], model.N.shape[2], figsize=(45, 20), sharex=True)
+    fig, axes = plt.subplots(model.N.shape[1], model.N.shape[2], figsize=(25, 20), sharex=True)
 
     t_smoothed = torch.linspace(model.t_observed[0], model.t_observed[-1], 100).to(device)
     y_pred = model.eval_model(t_smoothed)
@@ -74,10 +75,14 @@ def grid_visualize(
         plot_grid(predictions, axes, row, col, t_predictions, 'Predictions', 'lightcoral', size_samples, markers)
         plot_grid(observations, axes, row, col, t_observations, 'Observations', '#2C6975', size_samples, markers)
 
-        axes[0][col].set_title(anno['populations'][col], fontsize=15)
+        axes[0][col].set_title(anno['populations'][col], fontsize=15, pad=10)
         axes[row][0].set_ylabel(anno['clones'][row], fontsize=15)
-        axes[row][col].set_xticks(t_observations, labels=t_observations.astype(int), rotation=45)
-        axes[row][col].ticklabel_format(axis='y', style='sci', scilimits=(0, 4))
+        axes[row][col].set_xticks(t_observations, labels=t_observations.astype(int))
+        axes[row][col].ticklabel_format(axis='y', style='sci', scilimits=(0, 0))
+        axes[row][col].tick_params(axis='both', labelsize=13)
+
+        if np.max(predictions[:, row, col]) < 1:
+            axes[row][col].set_yticks([-1, 0, 1], [-1, 0, 1], fontsize=13)
 
     fig.subplots_adjust(hspace=0.5)
     fig.subplots_adjust(wspace=0.5)
@@ -101,7 +106,7 @@ def grid_visualize(
     # legend_elements.append(Line2D([0], [0], color='lightskyblue', lw=4))
     # labels.append('mean $\pm$ 1 std')
 
-    fig.legend(legend_elements, labels, loc='right', fontsize=15, bbox_to_anchor=(0.97, 0.5))
+    fig.legend(legend_elements, labels, loc='right', fontsize=15, bbox_to_anchor=(1, 0.5))
 
     if save:
         plt.savefig(f'./{save}.svg', dpi=600, bbox_inches='tight', transparent=False, facecolor='white')
@@ -125,21 +130,23 @@ def parameter_ci(
     bootstrap_K = total_K[:, index_clone, pop_1, pop_2] if N[index_clone, pop_1] > 0.5 else np.zeros(total_K.shape[0])
     lb, ub = np.percentile(bootstrap_K, 2.5), np.percentile(bootstrap_K, 97.5)
 
-    g = sns.displot(bootstrap_K, kde=True, color='#929591')
-    # g.fig.set_dpi(300)
+    g = sns.displot(bootstrap_K, kde=True, color='#A9A9A9')
 
-    if N[index_clone, pop_1] >= 0.5: plt.axvline(ref_K[index_clone, pop_1, pop_2], linestyle='--', color='lightcoral')
-    else: plt.axvline(0, linestyle='--', color='lightcoral')
+    if N[index_clone, pop_1] >= 0.5: plt.axvline(ref_K[index_clone, pop_1, pop_2], linestyle='--', color='lightcoral', ymax=0.9)
+    else: plt.axvline(0, linestyle='--', color='lightcoral', ymax=0.9)
 
-    title = f'Bootstrapping rates for Clone {index_clone} | Day {np.round(tpoint.item(), 1)}' \
+    if index_clone == -1:
+        index_clone = 'BG'
+
+    title = f'Distributions for Clone {index_clone} | Day {np.round(tpoint.item(), 1)}' \
         if K_type == 'dynamic' else f'Bootstrapping rates for clone {index_clone}'
-    plt.title(title, fontsize=12)
+    plt.title(title, fontsize=14)
 
-    plt.axvline(lb, linestyle='--', color='#069AF3')
-    plt.axvline(ub, linestyle='--', color='#069AF3')
-    plt.xlabel('From {} to {}'.format(anno['populations'].values[pop_1], anno['populations'].values[pop_2]), fontsize=12)
-    plt.xticks(fontsize=12)
-    plt.ylabel('# of trails', fontsize=12)
+    plt.axvline(lb, linestyle='--', color='#069AF3', ymax=0.9)
+    plt.axvline(ub, linestyle='--', color='#069AF3', ymax=0.8)
+    plt.xlabel('From {} to {}'.format(anno['populations'].values[pop_1], anno['populations'].values[pop_2]), fontsize=14)
+    plt.xticks(fontsize=14)
+    plt.ylabel('# of bootstrapping trails', fontsize=14)
     plt.yticks([])
 
     legend_elements = [
@@ -147,10 +154,10 @@ def parameter_ci(
         Line2D([0], [0], linestyle='--', color='#069AF3', lw=2), 
     ]
     labels = ['Fitted', f'95% CI']
-    plt.legend(legend_elements, labels, loc='best', fontsize=12)
+    plt.legend(legend_elements, labels, loc='upper right', fontsize=14, frameon=False)
 
     if save:
-        plt.savefig(f'./{save}.svg', dpi=600, bbox_inches='tight', transparent=False, facecolor='white')
+        plt.savefig(f'./manuscript_figs/{save}.svg', dpi=600, bbox_inches='tight', transparent=False, facecolor='white')
 
 def trajectory_range(
     model_list, 
@@ -174,14 +181,13 @@ def trajectory_ci(
     device: str = 'cpu',
     save: bool = False
 ):
-    fig, axes = plt.subplots(ref_model.N.shape[1], ref_model.N.shape[2], figsize=(45, 20), sharex=True)
+    fig, axes = plt.subplots(ref_model.N.shape[1], ref_model.N.shape[2], figsize=(40, 30), sharex=True)
     anno = pd.read_csv(os.path.join(ref_model.config['data_loader']['args']['data_dir'], ref_model.config['data_loader']['args']['annots'])) 
 
     total_pred, t_smoothed = trajectory_range(model_list, ref_model, device=device)
     lb, ub = np.percentile(total_pred, 25, axis=0), np.percentile(total_pred, 75, axis=0)
     t_observed = ref_model.t_observed.detach().cpu().numpy()
 
-    data_names = ['Observations', 'Predictions', 'Q50']
     sample_N = np.ones(ref_model.N.shape)
     markers = ['none', 'o', '^', '*', 'X', '3', 's', 'd']
 
@@ -199,10 +205,11 @@ def trajectory_ci(
         plot_grid(total_pred[-1], axes, row, col, t_smoothed, 'Predictions', 'lightcoral', size_samples, markers)
         plot_grid(ref_model.N, axes, row, col, t_observed, 'Observations', '#2C6975', size_samples, markers)
 
-        axes[0][col].set_title(anno['populations'][col])
-        axes[row][0].set_ylabel(anno['clones'][row])
-        axes[row][col].set_xticks(t_observed, labels=t_observed.astype(int), rotation=45)
-        axes[row][col].ticklabel_format(axis='y', style='sci', scilimits=(0, 4))
+        axes[0][col].set_title(anno['populations'][col], fontsize=16, pad=15)
+        axes[row][0].set_ylabel(anno['clones'][row], fontsize=16)
+        axes[row][col].set_xticks(t_observed, labels=t_observed.astype(int), fontsize=16)
+        axes[row][col].tick_params(axis='both', labelsize=16)
+        axes[row][col].ticklabel_format(axis='y', style='sci', scilimits=(0, 0))
 
     fig.subplots_adjust(hspace=0.5)
     fig.subplots_adjust(wspace=0.5)
@@ -217,5 +224,5 @@ def trajectory_ci(
     fig.legend(legend_elements, labels, loc='right', fontsize='x-large', bbox_to_anchor=(0.96, 0.5))
 
     if save:
-        plt.savefig(f'./{save}.svg', dpi=600, bbox_inches='tight', transparent=False, facecolor='white')
+        plt.savefig(f'./manuscript_figs/{save}.svg', dpi=600, bbox_inches='tight', transparent=False, facecolor='white')
 
