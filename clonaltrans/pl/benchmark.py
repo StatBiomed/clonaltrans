@@ -116,10 +116,10 @@ def plt_function(
     axes.spines['right'].set_visible(False)
     axes.tick_params(axis='both', labelsize=17)
 
-    axes.set_title(f'Fate bias {progenitor} \u2192 {fate} (Fates)', fontsize=18)
+    axes.set_title(f'Fate bias {progenitor} \u2192 {fate}', fontsize=18)
     axes.set_xlabel(xlabel, fontsize=18)
     axes.set_ylabel(ylabel, fontsize=18)
-    axes.text(0.05, 0.75, f'$Pearson \; Corr = {corr:.3f}$', fontsize=18, transform=axes.transAxes)
+    axes.text(0.3, 0.1, f'$Pearson \; Corr = {corr:.3f}$', fontsize=18, transform=axes.transAxes)
 
 def get_groundtruth_bias(adata_meta, aggre, transit_paths, color):
     perc_trails, legend_elements, labels = [], [], []
@@ -182,16 +182,16 @@ def with_cospar(
     rows, cols, figsize = get_subplot_dimensions(3, fig_height_per_row=4)
     fig, axes = plt.subplots(rows, cols, figsize=(figsize[0] + 5, figsize[1]))
 
-    plt_function(tracer_bias, cospar_bias, progenitor, fate, axes[0], 'CloneTracer', 'CoSpar', color)
+    plt_function(tracer_bias, cospar_bias, progenitor, fate, axes[0], 'CLADES', 'CoSpar', color)
     plt_function(perc_trails, cospar_bias, progenitor, fate, axes[1], 'Ground Truth', 'CoSpar', color)
-    plt_function(perc_trails, tracer_bias, progenitor, fate, axes[2], 'Ground Truth', 'CloneTracer', color)
+    plt_function(perc_trails, tracer_bias, progenitor, fate, axes[2], 'Ground Truth', 'CLADES', color)
 
     fig.legend(legend_elements, labels, loc='right', fontsize=18, bbox_to_anchor=(1.02, 0.5), frameon=False)
 
     if save:
-        plt.savefig(f'./{save}.svg', dpi=600, bbox_inches='tight', transparent=False, facecolor='white')
+        plt.savefig(f'./{save}.svg', dpi=600, bbox_inches='tight', transparent=True)
 
-def with_cospar_all(
+def     with_cospar_all(
     adata_cospar,
     adata_meta,     
     model,
@@ -239,13 +239,13 @@ def with_cospar_all(
 
     tracer_bias = [pearsonr(tracer_bias[idx], perc_trails[idx])[0] for idx, item in enumerate(tracer_bias)]
     cospar_bias = [pearsonr(cospar_bias[idx], perc_trails[idx])[0] for idx, item in enumerate(cospar_bias)]
-    plt_function(np.array(tracer_bias), np.array(cospar_bias), 'Progenitors', 'Fates', axes, 'CloneTracer / Ground Truth', 'CoSpar / Ground Truth', scatter_color)
+    plt_function(np.array(tracer_bias), np.array(cospar_bias), 'Progenitors', 'Fates', axes, 'CLADES / Ground Truth', 'CoSpar / Ground Truth', scatter_color)
 
     if show_fate:
         for idx, fate in enumerate(selected_fates):
             legend_elements.append(Line2D([0], [0], marker='o', color=color[np.where(np.array(selected_fates) == fate)[0][0]], markersize=7, linestyle=''))
             labels.append(fate)
-        fig.legend(legend_elements, labels, loc='right', fontsize=18, bbox_to_anchor=(1.1, 0.5), frameon=False)
+        fig.legend(legend_elements, labels, loc='right', fontsize=18, bbox_to_anchor=(1.3, 0.5), frameon=False)
     
     else:
         remains = [item for item in cluster_names if item not in selected_fates]
@@ -253,7 +253,7 @@ def with_cospar_all(
         for idx, fate in enumerate(remains):
             legend_elements.append(Line2D([0], [0], marker='o', color=color[np.where(np.array(cluster_names) == fate)[0][0]], markersize=7, linestyle=''))
             labels.append(fate)
-        fig.legend(legend_elements, labels, loc='right', fontsize=18, bbox_to_anchor=(1.55, 0.5), frameon=False)
+        fig.legend(legend_elements, labels, loc='right', fontsize=18, bbox_to_anchor=(2, 0.5), frameon=False)
 
     if save:
-        plt.savefig(f'./{save}.svg', dpi=600, bbox_inches='tight', transparent=False, facecolor='white')
+        plt.savefig(f'./{save}.svg', dpi=600, bbox_inches='tight', transparent=True)

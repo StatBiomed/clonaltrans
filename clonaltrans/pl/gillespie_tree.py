@@ -42,7 +42,6 @@ def get_div_distribution(gillespie_dir, cluster_names):
 def visualize_num_div(
     cluster_names,
     gillespie_dir, 
-    clone_id=5,
     palette='tab20', 
     save=False
 ):
@@ -51,51 +50,54 @@ def visualize_num_div(
     colors = colors * 2
     clone = gillespie_dir.split('/')[-1]
 
-    # rows, cols, figsize = get_subplot_dimensions(len(cluster_names) - 1, max_cols=max_cols, fig_height_per_row=4)
-    # fig, axes = plt.subplots(rows, cols, figsize=(figsize[0] + 5, figsize[1] + 10))
-    # fig.suptitle(f'Quantitative lens of division summary given a HSC_MPP for {os.path.split(gillespie_dir)[1]}', fontsize=22)
-    # plt.subplots_adjust(top=0.93)
+    rows, cols, figsize = get_subplot_dimensions(len(cluster_names) - 1, max_cols=5, fig_height_per_row=4)
+    fig, axes = plt.subplots(rows, cols, figsize=(figsize[0] + 5, figsize[1] + 5))
+    fig.suptitle(f'Quantitative lens of division summary given a HSC_MPP for {os.path.split(gillespie_dir)[1]}', fontsize=22)
+    plt.subplots_adjust(top=0.93)
 
     for cid in range(1, len(cluster_names)):
         if res_div[cluster_names[cid]] != []:
-            # ax_loc = axes[(cid - 1) // cols][(cid - 1) % cols] if rows > 1 else axes[cid - 1]
+            ax_loc = axes[(cid - 1) // cols][(cid - 1) % cols] if rows > 1 else axes[cid - 1]
             
-            # sns.histplot(res_div[cluster_names[cid]], ax=ax_loc, color=colors[cid])
-            # ax_loc.set_title(cluster_names[cid], fontsize=20)
+            ax = sns.histplot(res_div[cluster_names[cid]], ax=ax_loc, color=colors[cid])
+            ax_loc.set_title(cluster_names[cid], fontsize=20)
 
-            # ax_loc.axvline(
-            #     np.round(np.mean(res_div[cluster_names[cid]]), 2), 
-            #     linestyle='--', 
-            #     color='black', 
-            #     linewidth=3,
-            #     ymax=0.7
-            # )
+            ax_loc.axvline(
+                np.round(np.mean(res_div[cluster_names[cid]]), 2), 
+                linestyle='--', 
+                color='black', 
+                linewidth=3,
+                ymax=0.7
+            )
 
-            # axes[(cid - 1) // cols][(cid - 1) % cols].set_ylabel('# of trails', fontsize=18)
-            # axes[(cid - 1) // cols][(cid - 1) % cols].set_xlabel('# of divisions', fontsize=18)
+            axes[(cid - 1) // cols][(cid - 1) % cols].set_ylabel('# of trails', fontsize=18)
+            axes[(cid - 1) // cols][(cid - 1) % cols].set_xlabel('# of divisions', fontsize=18)
 
-            # if (cid - 1) % cols != 0:
-                # axes[(cid - 1) // cols][(cid - 1) % cols].set_ylabel('')
+            if (cid - 1) % cols != 0:
+                axes[(cid - 1) // cols][(cid - 1) % cols].set_ylabel('')
 
-            ax = sns.histplot(res_div[cluster_names[cid]], color=colors[cid])
+            # ax = sns.histplot(res_div[cluster_names[cid]], color=colors[cid])
             ax.spines['top'].set_visible(False)
             ax.spines['right'].set_visible(False)
             ax.tick_params(axis='both', labelsize=18)
 
-            fig = ax.get_figure()
-            fig.set_figwidth(6) 
-            fig.set_figheight(6)
+            # fig = ax.get_figure()
+            # fig.set_figwidth(8) 
+            # fig.set_figheight(6)
 
-            plt.title(f'{cluster_names[cid]} (Meta-clone {clone_id})', fontsize=20)
-            plt.xlabel('# of divisions', fontsize=18)
-            plt.ylabel('# of trails', fontsize=18)
-            plt.text(x=0.93, y=0.92, ha='right', va='top', color='black', fontsize=18,
-                s=f'Mean: ${np.round(np.mean(res_div[cluster_names[cid]]), 2)}$', transform=ax.transAxes
-            )
+            # if clone == 'clone_12':
+            #     clone = 'Background'
 
-            if save:
-                plt.savefig(f'./gdist_{clone}_{cluster_names[cid]}.svg', dpi=600, bbox_inches='tight', transparent=False, facecolor='white')
-                plt.close()
+            # plt.title(f'{cluster_names[cid]} (Meta {clone})', fontsize=18)
+            # plt.xlabel('Number of divisions', fontsize=18)
+            # plt.ylabel('Number of trails', fontsize=18)
+            # plt.text(x=0.93, y=0.92, ha='right', va='top', color='black', fontsize=18,
+            #     s=f'Mean: ${np.round(np.mean(res_div[cluster_names[cid]]), 2)}$', transform=ax.transAxes
+            # )
+
+    if save:
+        plt.savefig(f'./gdist_{clone}_{cid}.svg', dpi=600, bbox_inches='tight', transparent=True)
+        plt.close()
 
 def get_divisions(target_path, cluster_names):
     target_path_names = [get_cell_idx(i, types='name', cluster_names=cluster_names) for i in target_path]
@@ -240,10 +242,10 @@ def visualize_gtree(
 
         patches = [plt.plot([], [], marker='o', ls='', color=color, markersize=13)[0] for color in cluster_colors.values()] 
         plt.legend(patches, cluster_colors.keys(), bbox_to_anchor=(1, 0.95), fontsize=23, frameon=False)
-        plt.title(f'Simulated differentiation structure of seed {seed} | {os.path.split(gillespie_dir)[1]}', fontsize=23)
+        # plt.title(f'Simulated differentiation structure of seed {seed} | {os.path.split(gillespie_dir)[1]}', fontsize=23)
 
         if save:
-            plt.savefig(f'./gillespie_tree_{seed}.svg', dpi=600, bbox_inches='tight', transparent=False, facecolor='white')
+            plt.savefig(f'./gillespie_tree_{seed}.svg', dpi=600, bbox_inches='tight', transparent=True)
 
     else:
         return number_divisions(G, cluster_names)
@@ -262,14 +264,14 @@ def mean_division_to_first(mean_div_distributions, palette='tab20', save=False):
     plt.legend(bbox_to_anchor=(0.95, -0.05), frameon=False, fontsize=28, ncol=7)
     plt.xticks(rotation=0, fontsize=28)
     plt.yticks(fontsize=28)
-    plt.title('Mean # of divisions needed for producing the first progeny given a HSC_MPP for each meta-clone', fontsize=32, pad=5) 
+    plt.title('Mean # of divisions needed for producing the first progeny given a HSC/MPP 1 for each meta-clone', fontsize=32, pad=5) 
     plt.tick_params(axis='both', which='both', width=2, length=10)
 
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
 
     if save:
-        plt.savefig(f'./{save}.svg', dpi=600, bbox_inches='tight', transparent=False, facecolor='white')
+        plt.savefig(f'./{save}.svg', dpi=600, bbox_inches='tight', transparent=True)
 
 def succeed_trails_to_first(len_div_distributions, num_trails=None, palette='tab20', save=False):
     df = pd.DataFrame(len_div_distributions)
@@ -283,22 +285,22 @@ def succeed_trails_to_first(len_div_distributions, num_trails=None, palette='tab
     color = get_hex_colors(palette)
     color = color * 2
     colors = [color[i + 1] for i, name in enumerate(df.columns)]
-    ax = df.plot(kind='bar', stacked=False, figsize=(40, 10), width=0.9, color=colors)
+    ax = df.plot(kind='bar', stacked=False, figsize=(30, 10), width=0.9, color=colors)
 
-    plt.legend(bbox_to_anchor=(0.9, -0.05), frameon=False, fontsize=30, ncol=5)
+    plt.legend(bbox_to_anchor=(1, -0.05), frameon=False, fontsize=25, ncol=6)
     plt.xticks(rotation=0, fontsize=30)
-    plt.yticks([0, 200, 400, 600, 800, 1000], fontsize=30)
-    plt.ylabel(f'# of simulation trails', fontsize=40)
-    plt.title('Potency preferance for each meta-clone given a HSC_MPP', fontsize=40, pad=0)
+    plt.yticks([0, 200, 400, 600, 800], fontsize=30)
+    plt.ylabel(f'# of simulation trails', fontsize=35)
+    plt.title('Potency preferance for each meta-clone given a HSC/MPP 1', fontsize=35, pad=0)
     plt.tick_params(axis='both', which='both', width=2, length=10)
 
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
 
     if save:
-        plt.savefig(f'./{save}.svg', dpi=600, bbox_inches='tight', transparent=False, facecolor='white')
+        plt.savefig(f'./{save}.svg', dpi=600, bbox_inches='tight', transparent=True)
 
-def clone_dist_diff_plot(div_distributions, ref_model, correct_method='holm', save=False):
+def clone_dist_diff_plot(div_distributions, ref_model, save=False):
     num_clone, num_pop = ref_model.N.shape[1], ref_model.N.shape[2]
     stats_tests = np.zeros((int(num_clone * (num_clone - 1) / 2), num_pop - 1))
     stats_tests[stats_tests == 0] = 'nan'
@@ -311,16 +313,6 @@ def clone_dist_diff_plot(div_distributions, ref_model, correct_method='holm', sa
 
                 stats_tests[count, idx_pop] = np.mean(div_c1) / np.mean(div_c2) if len(div_c1) > 10 and len(div_c2) > 10 else np.nan
 
-                # if len(div_c1) >= 3 and len(div_c2) >= 3:
-                #     _, shapiro_p_c1 = stats.shapiro(div_c1)
-                #     _, shapiro_p_c2 = stats.shapiro(div_c2)
-
-                #     if shapiro_p_c1 > 0.05 and shapiro_p_c2 > 0.05:
-                #         _, paired_p = stats.ttest_ind(div_c1, div_c2) 
-                #         stats_tests[count, idx_pop] = paired_p
-                #     else:
-                #         _, wilcox_p = stats.mannwhitneyu(div_c1, div_c2)
-                #         stats_tests[count, idx_pop] = wilcox_p
         count += 1
 
         if c1 == num_clone - 1:
@@ -329,30 +321,23 @@ def clone_dist_diff_plot(div_distributions, ref_model, correct_method='holm', sa
             c2 = 'BG'
         index.append(f'{c1} / {c2}')
 
-    # adjusted_p_values = []
-    # for i in range(stats_tests.shape[1]):
-    #     adjusted_p_values.append(smm.multipletests(stats_tests[:, i], method=correct_method)[1])
-
-    fig, axes = plt.subplots(figsize=(55, 12))
-    # adjusted_p_values = np.stack(adjusted_p_values)
-    # adjusted_p_values[adjusted_p_values > 0.01] = np.nan
-
-    # df = pd.DataFrame(data=-np.log10(adjusted_p_values), index=list(div_distributions[0].keys()), columns=index)
+    fig, axes = plt.subplots(figsize=(55, 15))
     df = pd.DataFrame(data=stats_tests.T, index=list(div_distributions[0].keys()), columns=index)
     # df = df.filter(like='BG')
     # df = get_clustered_heatmap(df)
 
-    ax = sns.heatmap(df, annot=False, linewidths=.1, cmap='coolwarm', xticklabels=True, yticklabels=True, cbar=True, vmin=0, vmax=3)
-    # plt.title('$-log_{10}$ p-values of # of divisions', fontsize=18, pad=15)
+    ax = sns.heatmap(df, annot=False, linewidths=.1, cmap='coolwarm', xticklabels=True, yticklabels=True, cbar=True, vmin=0, vmax=2)
     plt.title('Fold change of mean # of division events needed', fontsize=30, pad=15)
-    plt.xticks(fontsize=25, rotation=90)
-    plt.yticks(fontsize=25)
+    plt.xticks(fontsize=26, rotation=90)
+    # plt.yticks(fontsize=26)
 
     cbar = ax.collections[0].colorbar
-    cbar.ax.tick_params(labelsize=25)
+    cbar.ax.tick_params(labelsize=28)
+    cbar.set_ticks([0.0, 0.5, 1.0, 1.5, 2.0])  
+    cbar.set_ticklabels([0.0, 0.5, 1.0, 1.5, 2.0])
 
     if save:
-        plt.savefig(f'./{save}.svg', dpi=600, bbox_inches='tight', transparent=False, facecolor='white')
+        plt.savefig(f'./{save}.svg', dpi=600, bbox_inches='tight', transparent=True)
 
 def find_successive_ones(df, row_index):
     cols_with_one = df.columns[df.loc[row_index] == 1].tolist()

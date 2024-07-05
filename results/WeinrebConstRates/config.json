@@ -1,0 +1,115 @@
+{
+    "name": "WeinrebConstRates",
+    "logger_config_path": "/ssd/users/mingzegao/clonaltrans/clonaltrans/config/logger_config.json",
+    "system": {
+        "gpu_id": 0,
+        "seed": 42
+    },
+    "arch": {
+        "type": "ODEBlock",
+        "args": {
+            "activation": "softplus",
+            "hidden_dim": 32,
+            "K_type": "const"
+        }
+    },
+    "base_trainer": {
+        "epochs": 1500,
+        "save_dir": "/ssd/users/mingzegao/clonaltrans/trails",
+        "verbosity": 2
+    },
+    "user_trainer": {
+        "adjoint": false,
+        "alphas": [
+            1.0,
+            0.5,
+            0.5,
+            0.5,
+            0.1,
+            1.0
+        ],
+        "no_proliferation_pops": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+        ],
+        "no_apoptosis_pops": [
+            1,
+            1,
+            1,
+            1,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+        ],
+        "t_observed": [
+            0,
+            2,
+            4,
+            6
+        ],
+        "scaling_factor": [
+            1,
+            1.0808,
+            3.1616,
+            8.7108
+        ],
+        "ub_for_prol": 6,
+        "ub_for_diff": 6
+    },
+    "optimizer": {
+        "learning_rate": 0.05,
+        "lrs_ms": [
+            200,
+            400,
+            600,
+            800,
+            1000
+        ]
+    },
+    "data_loader": {
+        "type": "ClonalTransDataLoader",
+        "args": {
+            "data_dir": "/ssd/users/mingzegao/clonaltrans/datasets/Weinreb/data",
+            "num_populations": 22,
+            "annots": "annotations.csv",
+            "graphs": "graph_table.csv",
+            "day_zero": "initial_condition.csv",
+            "cell_counts": "kinetics_array_correction_factor.txt"
+        }
+    }
+}

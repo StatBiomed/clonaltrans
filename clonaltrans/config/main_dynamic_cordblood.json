@@ -24,11 +24,11 @@
 
     "user_trainer": {
         "adjoint": false,
-        "alphas": [1.0, 1.0, 0.5, 0.25, 0.05, 0.25],
-        "no_proliferation_pops": [0, 0, 1, 0, 1, 1, 0, 0, 0, 0, 0],
-        "no_apoptosis_pops": [1, 1, 0, 1, 0, 0, 1, 0, 0, 0, 0],
+        "alphas": [1.0, 0.5, 0.5, 0.25, 0.05, 0.5],
+        "no_proliferation_pops": [0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1],
+        "no_apoptosis_pops": [1, 1, 1, 0, 1, 0, 0, 1, 0, 0, 0, 0],
         "t_observed": [0, 3, 10, 17],
-        "scaling_factor": [1, 5.3521, 581.8464, 634.0689],
+        "scaling_factor": [1, 4.9054, 530.5978, 508.6567],
         "ub_for_prol": 6,
         "ub_for_diff": 6
     },    
@@ -41,8 +41,8 @@
     "data_loader": {
         "type": "ClonalTransDataLoader",
         "args":{
-            "data_dir": "/ssd/users/mingzegao/clonaltrans/datasets/CordBlood/data",
-            "num_populations": 11,
+            "data_dir": "/ssd/users/mingzegao/clonaltrans/datasets/CordBlood_Refine/data",
+            "num_populations": 12,
             "annots": "annotations.csv",
             "graphs": "graph_table.csv",
             "day_zero": "initial_condition.csv",

@@ -40,7 +40,7 @@ def mse_corr(model, save=False):
         ax_loc.plot([x.min(), x.max()], [x.min(), x.max()], linestyle="--", color="grey", zorder=0)
         
         sns.scatterplot(x=x.numpy().flatten().astype(int), y=y.numpy().flatten().astype(int), s=25, ax=ax_loc)
-        ax_loc.text(0.05, 0.85, f'Avg. Recover Rate: {(1 - loss.item()) * 100:.2f}%\nSpearman Corr: {spear:.3f}', transform=ax_loc.transAxes, fontsize=15)
+        ax_loc.text(0.05, 0.85, f'Avg. Recovery Rate: {(1 - loss.item()) * 100:.2f}%\nSpearman Corr: {spear:.3f}', transform=ax_loc.transAxes, fontsize=15)
 
         ax_loc.set_title(title, fontsize=15)
         ax_loc.set_xlabel(f'Observations', fontsize=15)
@@ -51,7 +51,7 @@ def mse_corr(model, save=False):
         ax_loc.tick_params(axis='both', labelsize=15)
 
     if save:
-        plt.savefig(f'./manuscript_figs/{save}.svg', dpi=600, bbox_inches='tight', transparent=False, facecolor='white')
+        plt.savefig(f'./{save}.svg', dpi=600, bbox_inches='tight', transparent=True)
 
 def clone_specific_K(model, index_clone=0, tpoint=1.0, save=False):
     import matplotlib.ticker as ticker
@@ -72,7 +72,7 @@ def clone_specific_K(model, index_clone=0, tpoint=1.0, save=False):
     colorbar.ax.tick_params(labelsize=13)
 
     index_clone = index_clone if index_clone != -1 else 'BG'
-    title = f'Transition rates for Clone {index_clone} | Day {np.round(tpoint, 1)}' \
+    title = f'Transition rates for Meta-clone {index_clone} | Day {np.round(tpoint, 1)}' \
         if K_type == 'dynamic' else f'Transition rates for clone {index_clone}'
     plt.title(title, fontsize=14)
 
@@ -80,7 +80,7 @@ def clone_specific_K(model, index_clone=0, tpoint=1.0, save=False):
     plt.yticks(fontsize=13)
 
     if save:
-        plt.savefig(f'./manuscript_figs/{save}.svg', dpi=300, bbox_inches='tight', transparent=False, facecolor='white')
+        plt.savefig(f'./{save}.svg', dpi=300, bbox_inches='tight', transparent=True)
 
 def rates_in_paga(model, save=False):
     K_total = get_K_total(model)[:, :-1, :, :]
@@ -94,12 +94,12 @@ def rates_in_paga(model, save=False):
     fig.set_figwidth(8) 
     fig.set_figheight(6)
 
-    plt.ylabel('Count', fontsize=20)
+    plt.ylabel('Counts', fontsize=20)
     plt.xlabel(f'Per capita transition rates ', fontsize=20)
     plt.title(f'Distributions (Day {model.t_observed[0]} ~ Day {model.t_observed[-1]})', fontsize=20)
     
     plt.text(
-        0.5, 
+        0.45, 
         0.7, 
         f'Each meta-clone has:\n{used_L.shape[1]} proliferation & \n{np.sum(used_L != 0) - used_L.shape[1]} differentiation rates', 
         fontsize=20,
@@ -109,7 +109,7 @@ def rates_in_paga(model, save=False):
     plt.yscale('log')
 
     if save:
-        plt.savefig(f'./manuscript_figs/{save}.svg', dpi=600, bbox_inches='tight', transparent=False, facecolor='white')
+        plt.savefig(f'./{save}.svg', dpi=600, bbox_inches='tight', transparent=True)
 
 def rates_notin_paga(model, save=False):
     K_total = get_K_total(model)
@@ -164,7 +164,7 @@ def compare_with_bg(model, save=False):
     plt.tick_params(axis='both', labelsize=13)
 
     if save is not False:
-        plt.savefig(f'./manuscript_figs/{save}.svg', dpi=600, bbox_inches='tight', transparent=False, facecolor='white')
+        plt.savefig(f'./{save}.svg', dpi=600, bbox_inches='tight', transparent=True)
 
 def clone_rates_diff_plot(
     adjusted_p_values,
@@ -203,11 +203,11 @@ def clone_rates_diff_plot(
     if plt_type == 'pvalues':
         adjusted_p_values[adjusted_p_values > 0.01] = np.nan
         adjusted_p_values = -np.log10(adjusted_p_values)
-        title = '$-log_{10}$ p-values | Day 4.0'
+        title = '$-log_{10}$ p-values | Day 3.0'
 
     if plt_type == 'foldchange':
         adjusted_p_values[adjusted_p_values < 0.1] = np.nan
-        title = 'Foldchange of rates | Day 4.0'
+        title = 'Foldchange of rates | Day 3.0'
     
     if plt_type == 'combined':
         adjusted_p_values[0][adjusted_p_values[0] > 0.01] = np.nan
@@ -219,21 +219,21 @@ def clone_rates_diff_plot(
     # df = df.filter(like='BG')
     # df = get_clustered_heatmap(df)
 
-    ax = sns.heatmap(df, annot=False, linewidths=.1, cmap='viridis', vmin=0, xticklabels=True, yticklabels=True, cbar=False)
-    plt.title(title, fontsize=35, pad=10)
+    ax = sns.heatmap(df, annot=False, linewidths=.1, cmap='viridis', vmin=0, xticklabels=True, yticklabels=True, cbar=True)
+    plt.title(title, fontsize=30, pad=10)
 
-    plt.xticks(fontsize=25, rotation=90)
+    plt.xticks(fontsize=25)
     plt.yticks(fontsize=25)
 
     fig = ax.get_figure()
-    fig.set_figwidth(50) 
+    fig.set_figwidth(55) 
     fig.set_figheight(25) 
 
-    # cbar = ax.collections[0].colorbar
-    # cbar.ax.tick_params(labelsize=15)
+    cbar = ax.collections[0].colorbar
+    cbar.ax.tick_params(labelsize=25)
 
     if save:
-        plt.savefig(f'./manuscript_figs/{save}.svg', dpi=600, bbox_inches='tight', transparent=False, facecolor='white')
+        plt.savefig(f'./{save}.svg', dpi=600, bbox_inches='tight', transparent=True)
 
 def get_rates_avg(model, save: bool = False):
     K_total = np.mean(get_K_total(model), axis=0)
@@ -261,7 +261,7 @@ def get_rates_avg(model, save: bool = False):
     ax.spines['right'].set_visible(False)
 
     if save:
-        plt.savefig(f'./{save}.svg', dpi=600, bbox_inches='tight', transparent=False, facecolor='white')
+        plt.savefig(f'./{save}.svg', dpi=600, bbox_inches='tight', transparent=True)
 
 def get_clustered_heatmap(df):
     df = df.fillna(0)

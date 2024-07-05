@@ -1,10 +1,10 @@
 {
-    "name": "CordBloodConstBoots",
+    "name": "CordBloodDynamicBoots",
     "logger_config_path": "/ssd/users/mingzegao/clonaltrans/clonaltrans/config/logger_config.json",
     "calibrate": false,
 
     "system": {
-        "gpu_id": [0, 1, 2, 4, 5, 6, 7],
+        "gpu_id": [1, 2, 3, 4, 5, 6, 7],
         "seed": 42
     },
 
@@ -12,7 +12,7 @@
         "save_dir": "/ssd/users/mingzegao/clonaltrans/trails"
     },
 
-    "model_path": "/ssd/users/mingzegao/clonaltrans/trails/checkpoints/CordBloodConstRates/0322_185005/model_last.pt",
+    "model_path": "/ssd/users/mingzegao/clonaltrans/trails/checkpoints/CordBloodDynamicRates/0603_121235/model_last.pt",
     "concurrent": 35,
     "epoch": 25
 

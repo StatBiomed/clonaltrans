@@ -6,14 +6,11 @@ __pycache__/
 # C extensions
 *.so
 
-datasets
-manuscript_figs
-deprecated
+cospar_files
 trails
-interim
-figure
-figures
-data
+manuscript_figs
+datasets
+notebooks
 
 # Distribution / packaging
 .Python

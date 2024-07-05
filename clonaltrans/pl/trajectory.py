@@ -138,26 +138,26 @@ def parameter_ci(
     if index_clone == -1:
         index_clone = 'BG'
 
-    title = f'Distributions for Clone {index_clone} | Day {np.round(tpoint.item(), 1)}' \
+    title = f'Rates of Meta-clone {index_clone} | Day {np.round(tpoint.item(), 1)}' \
         if K_type == 'dynamic' else f'Bootstrapping rates for clone {index_clone}'
-    plt.title(title, fontsize=14)
+    plt.title(title, fontsize=15)
 
     plt.axvline(lb, linestyle='--', color='#069AF3', ymax=0.9)
     plt.axvline(ub, linestyle='--', color='#069AF3', ymax=0.8)
-    plt.xlabel('From {} to {}'.format(anno['populations'].values[pop_1], anno['populations'].values[pop_2]), fontsize=14)
-    plt.xticks(fontsize=14)
-    plt.ylabel('# of bootstrapping trails', fontsize=14)
-    plt.yticks([])
+    plt.xlabel('From {} to {}'.format(anno['populations'].values[pop_1], anno['populations'].values[pop_2]), fontsize=15)
+    plt.xticks(fontsize=15)
+    plt.ylabel('# of bootstrapping trails', fontsize=15)
+    plt.yticks(fontsize=15)
 
     legend_elements = [
         Line2D([0], [0], linestyle='--', color='lightcoral', lw=2), 
         Line2D([0], [0], linestyle='--', color='#069AF3', lw=2), 
     ]
     labels = ['Fitted', f'95% CI']
-    plt.legend(legend_elements, labels, loc='upper right', fontsize=14, frameon=False)
+    plt.legend(legend_elements, labels, loc='upper right', fontsize=15, frameon=False)
 
     if save:
-        plt.savefig(f'./manuscript_figs/{save}.svg', dpi=600, bbox_inches='tight', transparent=False, facecolor='white')
+        plt.savefig(f'./{save}.svg', dpi=600, bbox_inches='tight', transparent=True)
 
 def trajectory_range(
     model_list, 
@@ -170,9 +170,13 @@ def trajectory_range(
 
     for idx, model in pbar:
         t_smoothed = torch.linspace(model.t_observed[0], model.t_observed[-1], 100).to(device)
-        y_pred = model.eval_model(t_smoothed)
-        total_pred.append(y_pred)
+        try:
+            y_pred = model.eval_model(t_smoothed)
+            total_pred.append(y_pred)
+        except:
+            pass
     
+    print (f'# of used bootstrapping models: {len(total_pred)}')
     return np.stack(total_pred), t_smoothed.detach().cpu().numpy()
 
 def trajectory_ci(
@@ -221,8 +225,8 @@ def trajectory_ci(
         Line2D([0], [0], color='#929591', lw=2)
     ]
     labels = ['Observations', 'Predictions', 'Q25 - Q75', 'Q50']
-    fig.legend(legend_elements, labels, loc='right', fontsize='x-large', bbox_to_anchor=(0.96, 0.5))
+    fig.legend(legend_elements, labels, loc='right', fontsize='x-large', bbox_to_anchor=(0.96, 0.5), frameon=False)
 
     if save:
-        plt.savefig(f'./manuscript_figs/{save}.svg', dpi=600, bbox_inches='tight', transparent=False, facecolor='white')
+        plt.savefig(f'./{save}.svg', dpi=600, bbox_inches='tight', transparent=True)
 
