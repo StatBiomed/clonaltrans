@@ -1,0 +1,13 @@
+scanpy
+cospar
+igraph
+leidenalg
+ipykernel
+natsort
+numpy
+pandas
+scipy
+seaborn
+torch
+tqdm
+umap-learn
