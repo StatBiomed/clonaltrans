@@ -36,7 +36,7 @@ To fit the model using clonal data,
     
 2) Model configuration:
 
-    Only parameters within the `./clonaltrans/config` folder needs to be modified. The parameters are stored in JSON format, and run CLADES with command lines,
+    Only parameters within the `./clonaltrans/config` folder need to be modified. The parameters are stored in JSON format, and CLADES can be executed with command lines,
 
     ``` python
     python ./main.py --config ./config/main.json
