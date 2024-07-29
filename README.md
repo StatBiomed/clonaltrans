@@ -16,6 +16,8 @@ The basic Python packages required for the algorithm is listed in `requirements.
 
 If verson conflicts exist or you are unable to run the alogirhm on your own environment, we also provide a complete list of dependencies and pip packages with specified version number in `environments.yml`.
 
+All estimated running time mentioned here is based on 1 single GeForce RTX 3090 GPU, if you only have CPUs, the expected running time could be a few folds longer.
+
 ## Installation
 
 No installation process is needed for CLADES, please clone the repository locally then it is ready to use.
