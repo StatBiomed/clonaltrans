@@ -1,7 +1,7 @@
 import torch 
 from utils import set_seed
 
-from trainer import CloneTranModelSimu
+from trainer import CloneTranModel
 from model import ODESolver
 
 def run_model(
@@ -24,17 +24,24 @@ def run_model(
         adjoint=config['user_trainer']['adjoint']
     ).to(config['system']['gpu_id'])
 
-    optimizer = torch.optim.AdamW(model.parameters(), lr=config['optimizer']['learning_rate'], amsgrad=True)
-    scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=config['optimizer']['lrs_ms'], gamma=0.5)
+    optimizer = torch.optim.AdamW(
+        model.parameters(), 
+        lr=config['optimizer']['learning_rate'], 
+        weight_decay=config['optimizer']['weight_decay'],
+        amsgrad=True
+    )
 
-    trainer = CloneTranModelSimu(
+    trainer = CloneTranModel(
         N=N, 
         L=L, 
         config=config,
         model=model,
         optimizer=optimizer,
-        scheduler=scheduler,
-        t_observed=t_simu.to(config['system']['gpu_id'], dtype=torch.float32)
+        t_observed=t_simu.to(config['system']['gpu_id'], dtype=torch.float32),
+        trainer_type='simulation',
+        writer=None,
+        sample_N=None,
+        gpu_id=config['system']['gpu_id']
     )
     trainer.train_model()
 

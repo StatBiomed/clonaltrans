@@ -6,7 +6,7 @@ import os
 from typing import List
 
 from utils import set_seed
-from trainer import CloneTranModelBoots
+from trainer import CloneTranModel
 from model import ODESolver
 
 import torch.multiprocessing as multiprocessing
@@ -103,17 +103,22 @@ class Bootstrapping(nn.Module):
         params = sum([np.prod(p.size()) for p in model.parameters() if p.requires_grad])
         self.logger.info('Trainable parameters: {}\n'.format(params))
 
-        optimizer = torch.optim.AdamW(model.parameters(), lr=self.config['optimizer']['learning_rate'], amsgrad=True)
-        scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=self.config['optimizer']['lrs_ms'], gamma=0.5)
+        optimizer = torch.optim.AdamW(
+            model.parameters(), 
+            lr=self.config['optimizer']['learning_rate'], 
+            weight_decay=self.config['optimizer']['weight_decay'],
+            amsgrad=True
+        )
 
-        trainer = CloneTranModelBoots(
+        trainer = CloneTranModel(
             N=self.N.to(gpu_id), 
             L=self.L.to(gpu_id), 
             config=self.config,
             model=model,
             optimizer=optimizer,
-            scheduler=scheduler,
             t_observed=torch.tensor(self.config['user_trainer']['t_observed']).to(gpu_id, dtype=torch.float32),
+            trainer_type='bootstrapping',
+            writer=None,
             sample_N=sample_N.to(gpu_id),
             gpu_id=gpu_id
         )
