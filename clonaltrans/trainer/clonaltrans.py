@@ -1,8 +1,11 @@
 import torch
 from torch import nn
+import numpy as np
 from tqdm import tqdm
 from itertools import product
-from utils import pbar_tb_description
+import sys
+from utils import pbar_tb_description, time_func
+import os
 
 GaussianNLL = nn.GaussianNLLLoss(reduction='mean', eps=1e-12)
 PoissonNLL = nn.PoissonNLLLoss(log_input=False, reduction='mean')
@@ -14,11 +17,13 @@ class CloneTranModel(nn.Module):
         N, # (num_timpoints, num_clones, num_populations)
         L, # (num_populations, num_populations)
         config,
-        writer,
         model,
         optimizer,
-        scheduler,
-        t_observed
+        t_observed,
+        trainer_type='training',
+        writer=None,
+        sample_N=None,
+        gpu_id=None
     ):
         super(CloneTranModel, self).__init__()
         self.N = N
@@ -28,15 +33,28 @@ class CloneTranModel(nn.Module):
         self.model = model
 
         self.optimizer = optimizer
-        self.scheduler = scheduler
         self.t_observed = t_observed
-        self.logger = config['data_loader']['args']['logger']
 
         self.config = config
-        self.writer = writer
-        self.scaling_factor = config['user_trainer']['scaling_factor']
+        self.scaling_factor = torch.tensor(config['user_trainer']['scaling_factor'], dtype=torch.float32).to(gpu_id)
         self.K_type = config['arch']['args']['K_type']
-        self.gpu_id = self.config['system']['gpu_id']
+        self.gpu_id = gpu_id
+
+        self.trainer_type = trainer_type
+        self.writer = writer
+        
+        if self.trainer_type == 'training':
+            self.logger = config['data_loader']['args']['logger']
+            self.model_id = 0.0
+
+        elif self.trainer_type == 'bootstrapping':
+            self.sample_N = sample_N
+
+        elif self.trainer_type == 'simulation':
+            self.model_id = 0.0
+
+        else:
+            raise ValueError('Invalid trainer_type type')
         
         self.get_masks()
 
@@ -52,8 +70,11 @@ class CloneTranModel(nn.Module):
         self.no_apoptosis = self.A.unsqueeze(0).to(torch.float32).to(self.gpu_id)
 
     def combine_K1_K2(self, K1, K2):
-        for clone, pop in product(range(K1.shape[0]), range(K1.shape[1])):
-            K1[clone, pop, pop] += K2[clone, pop]
+        idx = torch.arange(K1.shape[1], device=K1.device)
+
+        for clone in range(K1.shape[0]):
+            K1[clone, idx, idx] += K2[clone]
+
         return K1
 
     def get_Kt(self, tpoint, function):
@@ -121,49 +142,35 @@ class CloneTranModel(nn.Module):
         for param in self.model.parameters():
             param.requires_grad = False
 
-    def compute_obs_loss(self):
+    def compute_obs_loss_train(self):
         loss_obs = 0.0
         for i in range(1, self.N.shape[0]):
             loss_obs += PoissonNLL(self.y_pred[i] / self.scaling_factor[i], self.N[i] / self.scaling_factor[i])
         return loss_obs
 
     def compute_penalty_terms(
-        self,
+        self, 
         p_uppb, 
         p_zero, 
         p_prol,
         p_apop
     ):
-        l0 = self.config['user_trainer']['alphas'][0] * torch.sum(p_uppb)
-        l1 = self.config['user_trainer']['alphas'][1] * torch.linalg.norm(p_prol, ord=1)
-        l2 = self.config['user_trainer']['alphas'][2] * torch.linalg.norm(p_zero, ord=2)
+        l0, l1, l2 = self.compute_penalty_l0_l1_l2(p_uppb, p_prol, p_zero)
         
         K_total = []
-        for idx, time in enumerate(self.t_observed):
+        for idx, time in enumerate(self.t_observed):        
             masks = torch.where(self.y_pred[idx] < torch.tensor([0.5]).to(self.gpu_id))
+                
+            input_K1 = self.K1 if self.config['arch']['args']['K_type'] == 'const' else self.K1[idx]
+            input_K2 = self.K2 if self.config['arch']['args']['K_type'] == 'const' else self.K2[idx]
 
-            if self.config['arch']['args']['K_type'] == 'const':
-                self.K1 = self.K1.unsqueeze(0)
-                self.K2 = self.K2.unsqueeze(0)
-                idx = 0
-
-            K = self.combine_K1_K2(self.K1[idx], self.K2[idx])
-
-            if self.config['arch']['args']['K_type'] == 'const':
-                self.K1 = self.K1.squeeze()
-                self.K2 = self.K2.squeeze()
-
+            K = self.combine_K1_K2(input_K1, input_K2)
             K[masks[0], masks[1], :] = 0
             K_total.append(K)
         
         K_total = torch.stack(K_total)
-        l3 = torch.mean(K_total[:, :-1, :, :], dim=1).flatten() - K_total[:, -1, :, :].flatten()
-        l3 = self.config['user_trainer']['alphas'][3] * torch.linalg.norm(torch.abs(l3), ord=1)
-
-        l4 = torch.flatten((K_total < 0).to(torch.float32) * K_total) / 2
-        l4 = self.config['user_trainer']['alphas'][4] * torch.linalg.norm(torch.abs(l4), ord=2)
-
-        l5 = self.config['user_trainer']['alphas'][5] * torch.linalg.norm(p_apop, ord=1)
+        
+        l3, l4, l5 = self.compute_penalty_l3_l4_l5(K_total, p_apop)
         return l0, l1, l2, l3, l4, l5
 
     def compute_loss(self, epoch, pbar):
@@ -172,7 +179,15 @@ class CloneTranModel(nn.Module):
         if False:
             self.freeze_model_parameters()
 
-        loss_obs = self.compute_obs_loss()
+        if self.trainer_type == 'training':
+            loss_obs = self.compute_obs_loss_train()
+        elif self.trainer_type == 'bootstrapping':
+            loss_obs = self.compute_obs_loss_boots()
+        elif self.trainer_type == 'simulation':
+            loss_obs = self.compute_obs_loss_train()
+        else:
+            raise ValueError('Invalid trainer type')
+
         l0, l1, l2, l3, l4, l5 = self.compute_penalty_terms(
             p_uppb, 
             p_zero, 
@@ -181,16 +196,15 @@ class CloneTranModel(nn.Module):
         )
 
         descrip = pbar_tb_description(
-            ['L/K2Pro', 'L/Pop0', 'L/DiffBG', 'L/Neg0', 'L/Apop', 'L/L3', 'L/L10', 'L/L17'],
-            [  
+            ['ID', 'L/K2Pro', 'L/Pop0', 'L/DiffBG', 'L/Neg0', 'L/Apop', 'L/Recon'],
+            [ 
+                self.model_id, 
                 l1.item() / self.config['user_trainer']['alphas'][1],
                 l2.item() / self.config['user_trainer']['alphas'][2],
                 l3.item() / self.config['user_trainer']['alphas'][3],
                 l4.item() / self.config['user_trainer']['alphas'][4],
                 l5.item() / self.config['user_trainer']['alphas'][5],
-                (SmoothL1(self.y_pred[1], self.N[1]) / self.scaling_factor[1]).item(),
-                (SmoothL1(self.y_pred[2], self.N[2]) / self.scaling_factor[2]).item(),
-                (SmoothL1(self.y_pred[3], self.N[3]) / self.scaling_factor[3]).item()
+                np.sum([(SmoothL1(self.y_pred[i], self.N[i]) / self.scaling_factor[i]).item() for i in range(1, self.N.shape[0])]),
             ],
             epoch, self.writer
         )
