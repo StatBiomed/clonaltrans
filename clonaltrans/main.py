@@ -45,6 +45,7 @@ def run_model(config):
         weight_decay=config['optimizer']['weight_decay'],
         amsgrad=True
     )
+    # optimizer = torch.optim.AdamW(model.parameters(), lr=config['optimizer']['learning_rate'], amsgrad=True)
 
     trainer = CloneTranModel(
         N=N, 

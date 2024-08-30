@@ -3,6 +3,7 @@ import torch
 import math
 from torch.nn.parameter import Parameter
 from torchdiffeq import odeint_adjoint, odeint
+from utils import time_func
 
 def activation_helper(activation):
     if activation == 'gelu':

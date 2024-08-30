@@ -42,6 +42,7 @@ class CloneTranModel(nn.Module):
 
         self.trainer_type = trainer_type
         self.writer = writer
+        # self.scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[200, 400, 600, 800, 1000], gamma=0.5)
         
         if self.trainer_type == 'training':
             self.logger = config['data_loader']['args']['logger']
@@ -57,6 +58,14 @@ class CloneTranModel(nn.Module):
             raise ValueError('Invalid trainer_type type')
         
         self.get_masks()
+        self.get_weight_by_metaclone_size()
+
+    def get_weight_by_metaclone_size(self):
+        total_counts = torch.sum(self.N, dim=(0, 2))[:-1]
+        self.rate_weights = total_counts / torch.sum(total_counts)
+
+        if self.trainer_type == 'training':
+            self.logger.info(f'Rate weights for each meta-clones: {self.rate_weights}')
 
     def get_masks(self):
         self.used_L = self.L.clone()
@@ -148,6 +157,44 @@ class CloneTranModel(nn.Module):
             loss_obs += PoissonNLL(self.y_pred[i] / self.scaling_factor[i], self.N[i] / self.scaling_factor[i])
         return loss_obs
 
+    def compute_obs_loss_boots(self):
+        loss_obs = 0.0
+        for i in range(1, self.N.shape[0]):
+            loss_obs += PoissonNLL(self.y_pred[i] * self.sample_N[i] / self.scaling_factor[i], self.N[i] * self.sample_N[i] / self.scaling_factor[i])
+        return loss_obs
+
+    # def compute_obs_loss_train(self):
+    #     scaling_factor = self.scaling_factor[1:].unsqueeze(-1).unsqueeze(-1)
+    #     y_pred_scaled = self.y_pred[1:] / scaling_factor
+    #     N_scaled = self.N[1:] / scaling_factor
+    #     return PoissonNLL(y_pred_scaled, N_scaled)
+
+    # def compute_obs_loss_boots(self):
+    #     scaling_factor = self.scaling_factor[1:].unsqueeze(-1).unsqueeze(-1)
+    #     y_pred_scaled = self.y_pred[1:] * self.sample_N[1:] / scaling_factor
+    #     N_scaled = self.N[1:] * self.sample_N[1:] / scaling_factor
+    #     return PoissonNLL(y_pred_scaled, N_scaled)
+
+    def compute_penalty_l0_l1_l2(self, p_uppb, p_prol, p_zero):
+        l0 = self.config['user_trainer']['alphas'][0] * torch.sum(p_uppb)
+        l1 = self.config['user_trainer']['alphas'][1] * torch.linalg.norm(p_prol, ord=1)
+        l2 = self.config['user_trainer']['alphas'][2] * torch.linalg.norm(p_zero, ord=2)
+        return l0, l1, l2
+
+    def compute_penalty_l3_l4_l5(self, K_total, p_apop):
+        # l3 = K_total[:, :-1, :, :] * self.rate_weights.unsqueeze(-1).unsqueeze(-1)
+        # l3 = torch.sum(l3, dim=1).flatten() - K_total[:, -1, :, :].flatten()
+        # l3 = self.config['user_trainer']['alphas'][3] * torch.linalg.norm(torch.abs(l3), ord=1)
+
+        l3 = torch.mean(K_total[:, :-1, :, :], dim=1).flatten() - K_total[:, -1, :, :].flatten()
+        l3 = self.config['user_trainer']['alphas'][3] * torch.linalg.norm(torch.abs(l3), ord=1)
+
+        l4 = torch.flatten((K_total < 0).to(torch.float32) * K_total) / 2
+        l4 = self.config['user_trainer']['alphas'][4] * torch.linalg.norm(torch.abs(l4), ord=2)
+
+        l5 = self.config['user_trainer']['alphas'][5] * torch.linalg.norm(p_apop, ord=1)
+        return l3, l4, l5
+
     def compute_penalty_terms(
         self, 
         p_uppb, 
@@ -224,6 +271,11 @@ class CloneTranModel(nn.Module):
 
         self.model.train()
 
+        lr = self.config['optimizer']['learning_rate']
+        losses = [sys.maxsize]  
+        min_loss = losses[-1]
+        model_saved = False
+
         pbar = tqdm(range(self.config['base_trainer']['epochs']))
         for epoch in pbar:
             self.optimizer.zero_grad()
@@ -232,7 +284,29 @@ class CloneTranModel(nn.Module):
             loss = self.compute_loss(epoch, pbar)
             
             self.optimizer.step()
-            self.scheduler.step()
+            # self.scheduler.step()
+    
+            if self.trainer_type == 'training':
+                losses.append(loss.cpu().detach().numpy())
+                self.writer.add_scalar("LearningRate", lr, epoch)
+                
+                if epoch % self.config['base_trainer']['log_interval'] == 0 and epoch > 0: 
+                    if (not np.isnan(losses[-1])) and (losses[-1] < min_loss):
+                        min_loss = losses[-1]
+                        torch.save(self.model.state_dict(), os.path.join(self.config.save_dir, f'model_last.cpt'))
+                        model_saved = True
+
+                    else:
+                        if model_saved:
+                            self.model.load_state_dict(torch.load(os.path.join(self.config.save_dir, f'model_last.cpt')))
+                            self.model = self.model.to(self.gpu_id)
+
+                        lr *= self.config['optimizer']['lr_decay']
+                        for param_group in self.optimizer.param_groups:
+                            param_group['lr'] = lr
+
+        if losses[-1] < min_loss:
+            torch.save(self.model.state_dict(), os.path.join(self.config.save_dir, f'model_last.cpt'))
 
     @torch.no_grad()
     def eval_model(self, t_eval):
