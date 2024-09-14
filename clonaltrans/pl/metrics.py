@@ -148,7 +148,13 @@ def rates_diagonal(model, tpoint=1.0, save=False):
 
 def compare_with_bg(model, save=False):
     K_total = get_K_total(model)
-    x = np.mean(K_total[:, :-1, :, :], axis=1).flatten()
+
+    if model.config['user_trainer']['weighted_rate']:
+        K_metas = torch.tensor(K_total[:, :-1, :, :]) * model.rate_weights.unsqueeze(-1).unsqueeze(-1)
+        x = np.sum(K_metas.detach().cpu().numpy(), axis=1).flatten()
+    else:
+        x = np.mean(K_total[:, :-1, :, :], axis=1).flatten()
+        
     y = K_total[:, -1, :, :].flatten()
 
     corr, p_value = pearsonr(x, y)

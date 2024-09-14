@@ -6,7 +6,7 @@ import os
 from typing import List
 
 from utils import set_seed
-from trainer import CloneTranModelBoots
+from trainer import CloneTranModel
 from model import ODESolver
 
 import torch.multiprocessing as multiprocessing
@@ -103,17 +103,27 @@ class Bootstrapping(nn.Module):
         params = sum([np.prod(p.size()) for p in model.parameters() if p.requires_grad])
         self.logger.info('Trainable parameters: {}\n'.format(params))
 
-        optimizer = torch.optim.AdamW(model.parameters(), lr=self.config['optimizer']['learning_rate'], amsgrad=True)
-        scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=self.config['optimizer']['lrs_ms'], gamma=0.5)
+        if self.config['optimizer']['scheduler_type'] == 'MultiStepLR':
+            optimizer = torch.optim.AdamW(model.parameters(), lr=self.config['optimizer']['learning_rate'], amsgrad=True)
+            scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=self.config['optimizer']['multistep_milestone'], gamma=0.5)
 
-        trainer = CloneTranModelBoots(
+        elif self.config['optimizer']['scheduler_type'] == 'Auto':
+            optimizer = torch.optim.AdamW(model.parameters(), lr=self.config['optimizer']['learning_rate'], weight_decay=0.0, amsgrad=True)
+            scheduler = None
+        
+        else:
+            raise ValueError('Invalid scheduler_type type.')
+
+        trainer = CloneTranModel(
             N=self.N.to(gpu_id), 
             L=self.L.to(gpu_id), 
             config=self.config,
+            writer=None,
             model=model,
             optimizer=optimizer,
             scheduler=scheduler,
             t_observed=torch.tensor(self.config['user_trainer']['t_observed']).to(gpu_id, dtype=torch.float32),
+            trainer_type='bootstrapping',
             sample_N=sample_N.to(gpu_id),
             gpu_id=gpu_id
         )

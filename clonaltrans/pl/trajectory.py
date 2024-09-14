@@ -81,8 +81,8 @@ def grid_visualize(
         axes[row][col].ticklabel_format(axis='y', style='sci', scilimits=(0, 0))
         axes[row][col].tick_params(axis='both', labelsize=13)
 
-        if np.max(predictions[:, row, col]) < 1:
-            axes[row][col].set_yticks([-1, 0, 1], [-1, 0, 1], fontsize=13)
+        # if np.max(predictions[:, row, col]) < 1:
+        #     axes[row][col].set_yticks([-1, 0, 1], [-1, 0, 1], fontsize=13)
 
     fig.subplots_adjust(hspace=0.5)
     fig.subplots_adjust(wspace=0.5)

@@ -9,7 +9,7 @@
     "t_cutoff": 1e-4,
 
     "base_trainer": {
-        "save_dir": "/ssd/users/mingzegao/clonaltrans/trails"
+        "save_dir": "/ssd/users/mingzegao/clonaltrans/revision_1"
     }
 
 }

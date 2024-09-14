@@ -1,4 +1,5 @@
 from .parse_config import ConfigParser
+
 from .utility import (
     set_seed, 
     get_K_total, 
@@ -7,5 +8,6 @@ from .utility import (
     clone_rates_diff_test,
     get_boots_K_total_with_time,
     get_post_masks,
-    time_func
+    time_func,
+    write_json
 )

@@ -39,8 +39,16 @@ def run_model(config):
     params = sum([np.prod(p.size()) for p in model.parameters() if p.requires_grad])
     logger.info('Trainable parameters: {}\n'.format(params))
 
-    optimizer = torch.optim.AdamW(model.parameters(), lr=config['optimizer']['learning_rate'], amsgrad=True)
-    scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=config['optimizer']['lrs_ms'], gamma=0.5)
+    if config['optimizer']['scheduler_type'] == 'MultiStepLR':
+        optimizer = torch.optim.AdamW(model.parameters(), lr=config['optimizer']['learning_rate'], amsgrad=True)
+        scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=config['optimizer']['multistep_milestone'], gamma=0.5)
+
+    elif config['optimizer']['scheduler_type'] == 'Auto':
+        optimizer = torch.optim.AdamW(model.parameters(), lr=config['optimizer']['learning_rate'], weight_decay=0.0, amsgrad=True)
+        scheduler = None
+    
+    else:
+        raise ValueError('Invalid scheduler_type type.')
 
     trainer = CloneTranModel(
         N=N, 
@@ -50,7 +58,10 @@ def run_model(config):
         model=model,
         optimizer=optimizer,
         scheduler=scheduler,
-        t_observed=torch.tensor(config['user_trainer']['t_observed']).to(config['system']['gpu_id'], dtype=torch.float32)
+        t_observed=torch.tensor(config['user_trainer']['t_observed']).to(config['system']['gpu_id'], dtype=torch.float32),
+        trainer_type='training',
+        sample_N=None,
+        gpu_id=config['system']['gpu_id']
     )
     trainer.train_model()
 
