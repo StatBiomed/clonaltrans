@@ -31,7 +31,8 @@ class ODEBlock(nn.Module):
         num_pops: int = 11,
         hidden_dim: int = 32, 
         activation: str = 'softplus', 
-        K_type: str = 'const'
+        K_type: str = 'const',
+        clipping: bool = False
     ):
         '''
         ODE function dydt = K1 * y + K2 * y + K1.T * y 
@@ -40,6 +41,7 @@ class ODEBlock(nn.Module):
         ''' 
         super(ODEBlock, self).__init__()
 
+        self.clipping = clipping
         self.K_type = K_type
         self.activation = activation_helper(activation)
         self.K1_mask = Parameter(L.unsqueeze(0), requires_grad=False)
@@ -110,7 +112,13 @@ class ODEBlock(nn.Module):
         return z
 
     def _dynamic_forward(self, t, y):
-        K1_t, K2_t = self.get_K1_K2(y)
+        K1_t, K2_t = self.get_K1_K2(y) # (clone, pop, pop), (clone, pop)
+
+        if self.clipping:
+            clip_index = torch.where(y < 0.5)
+            K1_t[clip_index[0], clip_index[1], :] = 0
+            K2_t[clip_index[0], clip_index[1]] = 0 
+
         z = torch.bmm(y.unsqueeze(1), K1_t).squeeze()
         z += y * K2_t 
         z -= torch.sum(y.unsqueeze(1) * torch.transpose(K1_t, 1, 2), dim=1)
@@ -144,10 +152,11 @@ class ODESolver(nn.Module):
         activation: str = 'softplus', 
         K_type: str = 'const',
         adjoint: bool = False,
+        clipping: bool = False
     ):
         super(ODESolver, self).__init__()
 
-        self.block = ODEBlock(L, num_clones, num_pops, hidden_dim, activation, K_type)
+        self.block = ODEBlock(L, num_clones, num_pops, hidden_dim, activation, K_type, clipping)
         self.adjoint = adjoint
     
     def forward(

@@ -21,19 +21,20 @@ def run_model(
         hidden_dim=config['arch']['args']['hidden_dim'], 
         activation=config['arch']['args']['activation'], 
         K_type=config['arch']['args']['K_type'],
-        adjoint=config['user_trainer']['adjoint']
+        adjoint=config['user_trainer']['adjoint'],
+        clipping=config['arch']['args']['clipping']
     ).to(config['system']['gpu_id'])
 
     if config['optimizer']['scheduler_type'] == 'MultiStepLR':
         optimizer = torch.optim.AdamW(model.parameters(), lr=config['optimizer']['learning_rate'], amsgrad=True)
         scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=config['optimizer']['multistep_milestone'], gamma=0.5)
 
-    elif config['optimizer']['scheduler_type'] == 'Auto':
+    elif config['optimizer']['scheduler_type'] == 'AutoAdaptive':
         optimizer = torch.optim.AdamW(model.parameters(), lr=config['optimizer']['learning_rate'], weight_decay=0.0, amsgrad=True)
         scheduler = None
     
     else:
-        raise ValueError('Invalid scheduler_type type.')
+        raise ValueError('Invalid scheduler_type, please choose from AutoAdaptive or MultiStepLR')
 
     trainer = CloneTranModel(
         N=N, 

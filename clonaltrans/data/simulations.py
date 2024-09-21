@@ -11,7 +11,8 @@ def init_solver(L, K, config):
         hidden_dim=config['arch']['args']['hidden_dim'], 
         activation=config['arch']['args']['activation'], 
         K_type=config['arch']['args']['K_type'],
-        adjoint=config['user_trainer']['adjoint']
+        adjoint=config['user_trainer']['adjoint'],
+        clipping=config['arch']['args']['clipping']
     ).to(config['system']['gpu_id'])
 
 def simulation_const(

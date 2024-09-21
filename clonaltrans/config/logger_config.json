@@ -22,7 +22,8 @@
             "formatter": "datetime", 
             "filename": "info.log", 
             "maxBytes": 10485760, 
-            "backupCount": 20, "encoding": "utf8"
+            "backupCount": 20, 
+            "encoding": "utf8"
         }
     }, 
 

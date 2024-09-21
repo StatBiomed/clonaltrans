@@ -109,7 +109,7 @@ def grid_visualize(
     fig.legend(legend_elements, labels, loc='right', fontsize=15, bbox_to_anchor=(1, 0.5))
 
     if save:
-        plt.savefig(f'./{save}.svg', dpi=600, bbox_inches='tight', transparent=False, facecolor='white')
+        plt.savefig(f'./{save}.svg', dpi=600, bbox_inches='tight', transparent=True)
 
 def parameter_ci(
     model_list, 

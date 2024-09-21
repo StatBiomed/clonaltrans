@@ -12,12 +12,13 @@
         "args": {
             "activation": "softplus",
             "hidden_dim": 32,
-            "K_type": "dynamic"
+            "K_type": "dynamic",
+            "clipping": false
         }
     },
 
     "base_trainer": {
-        "epochs": 1501,
+        "epochs": 1500,
         "save_dir": "/ssd/users/mingzegao/clonaltrans/revision_1",
         "verbosity": 2,
         "log_interval": 100
@@ -36,7 +37,7 @@
     },    
 
     "optimizer": {
-        "scheduler_type": "MultiStepLR",
+        "scheduler_type": "AutoAdaptive",
         "learning_rate": 1e-3,
         "multistep_milestone": [200, 400, 600, 800, 1000],
         "lr_decay": 0.9
@@ -44,6 +45,7 @@
 
     "data_loader": {
         "type": "ClonalTransDataLoader",
+        "abbreviation": "weinreb",
         "args":{
             "data_dir": "/ssd/users/mingzegao/clonaltrans/datasets/Weinreb/data",
             "num_populations": 22,

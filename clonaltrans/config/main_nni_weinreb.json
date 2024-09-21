@@ -1,9 +1,9 @@
 {
-    "name": "WeinrebConstRates",
+    "name": "WRArchitectureTest",
     "logger_config_path": "/ssd/users/mingzegao/clonaltrans/clonaltrans/config/logger_config.json",
 
     "system": {
-        "gpu_id": 0,
+        "gpu_id": 1,
         "seed": 42
     },
     
@@ -12,14 +12,14 @@
         "args": {
             "activation": "softplus",
             "hidden_dim": 32,
-            "K_type": "const",
+            "K_type": "dynamic",
             "clipping": false
         }
     },
 
     "base_trainer": {
         "epochs": 1500,
-        "save_dir": "/ssd/users/mingzegao/clonaltrans/revision_1",
+        "save_dir": "/ssd/users/mingzegao/clonaltrans/revision_1_nni",
         "verbosity": 2,
         "log_interval": 100
     },
@@ -37,8 +37,8 @@
     },    
 
     "optimizer": {
-        "scheduler_type": "MultiStepLR",
-        "learning_rate": 0.05,
+        "scheduler_type": "AutoAdaptive",
+        "learning_rate": 1e-3,
         "multistep_milestone": [200, 400, 600, 800, 1000],
         "lr_decay": 0.9
     },
@@ -54,6 +54,15 @@
             "day_zero": "initial_condition.csv",
             "cell_counts": "kinetics_array_correction_factor.txt"
         }
+    },
+
+    "nni_data":{
+        "model_path": "/ssd/users/mingzegao/clonaltrans/datasets/Weinreb_Demo/klein_paga.h5ad",
+        "clone_data_path": "/ssd/users/mingzegao/clonaltrans/datasets/Weinreb_Demo/clone_meta.npz",
+        "leiden_resolution": 0.25,
+        "data_dir": null,
+        "time_available": ["2.0", "4.0", "6.0"],
+        "scaling_factor": [1.0808, 3.1616, 8.7108]
     }
 
 }

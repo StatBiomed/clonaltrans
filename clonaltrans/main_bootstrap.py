@@ -94,7 +94,8 @@ class Bootstrapping(nn.Module):
             hidden_dim=self.config['arch']['args']['hidden_dim'], 
             activation=self.config['arch']['args']['activation'], 
             K_type=self.config['arch']['args']['K_type'],
-            adjoint=self.config['user_trainer']['adjoint']
+            adjoint=self.config['user_trainer']['adjoint'],
+            clipping=self.config['arch']['args']['clipping']
         ).to(gpu_id)
 
         self.logger.info(f'Running model ID: {model_id}')
@@ -107,12 +108,12 @@ class Bootstrapping(nn.Module):
             optimizer = torch.optim.AdamW(model.parameters(), lr=self.config['optimizer']['learning_rate'], amsgrad=True)
             scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=self.config['optimizer']['multistep_milestone'], gamma=0.5)
 
-        elif self.config['optimizer']['scheduler_type'] == 'Auto':
+        elif self.config['optimizer']['scheduler_type'] == 'AutoAdaptive':
             optimizer = torch.optim.AdamW(model.parameters(), lr=self.config['optimizer']['learning_rate'], weight_decay=0.0, amsgrad=True)
             scheduler = None
         
         else:
-            raise ValueError('Invalid scheduler_type type.')
+            raise ValueError('Invalid scheduler_type, please choose from AutoAdaptive or MultiStepLR')
 
         trainer = CloneTranModel(
             N=self.N.to(gpu_id), 
