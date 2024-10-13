@@ -84,7 +84,21 @@ def get_transit_path(model, cluster_names, progenitor, fate):
         np.where(cluster_names == fate)[0][0],
         cluster_names
     )
-    return transit_paths
+
+    selected_fates = ["Ery", "Meg", "Eos", "Mast", "DC", "Mono", "Neu", "pDC", "Ly", 'Baso']
+    transit_paths_all = []
+
+    for selected_fate in selected_fates:
+        transit_paths_all.extend(
+            get_trajectories(
+                paga.values, 
+                np.where(cluster_names == progenitor)[0][0], 
+                np.where(cluster_names == selected_fate)[0][0],
+                cluster_names
+            )
+        )
+
+    return transit_paths, transit_paths_all
 
 def get_tracer_bias(transit_paths, aggre):
     tracer_bias = []
@@ -121,14 +135,14 @@ def plt_function(
     axes.set_ylabel(ylabel, fontsize=18)
     axes.text(0.3, 0.1, f'$Pearson \; Corr = {corr:.3f}$', fontsize=18, transform=axes.transAxes)
 
-def get_groundtruth_bias(adata_meta, aggre, transit_paths, color):
+def get_groundtruth_bias(adata_meta, aggre, transit_paths, transit_paths_all, color):
     perc_trails, legend_elements, labels = [], [], []
     for idx, clone in enumerate(aggre.keys()):
         if int(clone[6:]) + 1 != len(aggre.keys()):
             df_temp = adata_meta.obs[adata_meta.obs['meta_clones'] == clone[6:]]
 
-            max_length = max(len(row) for row in transit_paths)
-            arr = np.array([row + ['Temp'] * (max_length - len(row)) for row in transit_paths])
+            max_length = max(len(row) for row in transit_paths_all)
+            arr = np.array([row + ['Temp'] * (max_length - len(row)) for row in transit_paths_all])
 
             denominator = np.unique(np.array(arr).flatten().squeeze())
             denominator = df_temp[df_temp['label_man'].isin(denominator)]
@@ -162,13 +176,13 @@ def with_cospar(
     save=False
 ):
     aggre = get_fate_prob(model, cluster_names, gillespie_dir)
-    transit_paths = get_transit_path(model, cluster_names, progenitor, fate)
+    transit_paths, transit_paths_all = get_transit_path(model, cluster_names, progenitor, fate)
 
     cospar_bias = get_cospar_bias(adata_cospar, adata_meta, progenitor, fate)
     tracer_bias = get_tracer_bias(transit_paths, aggre)
 
     color = get_hex_colors('tab20')
-    perc_trails, legend_elements, labels = get_groundtruth_bias(adata_meta, aggre, transit_paths, color)
+    perc_trails, legend_elements, labels = get_groundtruth_bias(adata_meta, aggre, transit_paths, transit_paths_all, color)
 
     color = np.array(color)[np.where(cospar_bias != -1)[0]]
     tracer_bias = np.array(tracer_bias)[np.where(cospar_bias != -1)[0]]
@@ -191,7 +205,7 @@ def with_cospar(
     if save:
         plt.savefig(f'./{save}.svg', dpi=600, bbox_inches='tight', transparent=True)
 
-def     with_cospar_all(
+def with_cospar_all(
     adata_cospar,
     adata_meta,     
     model,
@@ -212,11 +226,11 @@ def     with_cospar_all(
     for progenitor in keys:
         for fate in list(aggre[clones][progenitor].keys()):
             if fate in selected_fates:
-                transit_paths = get_transit_path(model, cluster_names, progenitor, fate)
+                transit_paths, transit_paths_all = get_transit_path(model, cluster_names, progenitor, fate)
 
                 cospar_bias = get_cospar_bias(adata_cospar, adata_meta, progenitor, fate)
                 tracer_bias = get_tracer_bias(transit_paths, aggre)
-                perc_trails, _, _ = get_groundtruth_bias(adata_meta, aggre, transit_paths, color)
+                perc_trails, _, _ = get_groundtruth_bias(adata_meta, aggre, transit_paths, transit_paths_all, color)
 
                 tracer_bias = np.array(tracer_bias)[np.where(cospar_bias != -1)[0]]
                 perc_trails = np.array(perc_trails)[np.where(cospar_bias != -1)[0]]

@@ -150,7 +150,7 @@ def compare_with_bg(model, save=False):
     K_total = get_K_total(model)
 
     if model.config['user_trainer']['weighted_rate']:
-        K_metas = torch.tensor(K_total[:, :-1, :, :]) * model.rate_weights.unsqueeze(-1).unsqueeze(-1)
+        K_metas = torch.tensor(K_total[:, :-1, :, :]).to(model.gpu_id) * model.rate_weights.unsqueeze(-1).unsqueeze(-1)
         x = np.sum(K_metas.detach().cpu().numpy(), axis=1).flatten()
     else:
         x = np.mean(K_total[:, :-1, :, :], axis=1).flatten()
@@ -163,7 +163,7 @@ def compare_with_bg(model, save=False):
     ax.spines['right'].set_visible(False)
 
     plt.plot([x.min(), x.max()], [x.min(), x.max()], linestyle="--", color="grey")
-    plt.xlabel(f'All cells (incl. filtered at pre-processing stage)', fontsize=15)
+    plt.xlabel(f'All cells (Background clone)', fontsize=15)
     plt.ylabel(f'Mean of {K_total.shape[1] - 1} meta-clones', fontsize=15)
     plt.text(0.05, 0.85, f'$Pearson \; Corr = {corr:.3f}$', fontsize=13, transform=plt.gca().transAxes)
     plt.title(f'Comparison of rates (Day {model.t_observed[0]} ~ Day {model.t_observed[-1]})', fontsize=15)

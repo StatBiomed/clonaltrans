@@ -30,7 +30,9 @@ from .gillespie_tree import (
 
 from .benchmark import (
     with_cospar,
-    with_cospar_all
+    with_cospar_all,
+    get_transit_path,
+    get_tracer_bias
 )
 
 from .simulations import (

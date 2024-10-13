@@ -5,13 +5,17 @@ import numpy as np
 import os
 from natsort import natsorted
 from utils import get_post_masks
+from tqdm import tqdm
 
 def get_simu_models(dir_simu):
     simu_models = []
 
     for model in natsorted(os.listdir(dir_simu)):
-        model_path = os.path.join(dir_simu, model)
-        simu_models.append(torch.load(model_path, map_location='cpu'))
+        if model.endswith('.pt'):
+            model_path = os.path.join(dir_simu, model)
+        else:
+            model_path = os.path.join(dir_simu, model, 'model_last.pt')
+        simu_models.append(torch.load(model_path, map_location='cuda:0'))
     
     return simu_models
 
@@ -76,14 +80,23 @@ def get_corr_losses(dir_simu, N_simu, valid_times=[0.0, 1.0]):
 
     return corr, losses, corr_all_log
 
-def get_error_rate(dir_simu, model_ori, tpoint=1.0):
+def get_error_rate(dir_simu, model_ori):
     simu_models = get_simu_models(dir_simu)
     simu_models.append(model_ori)
 
-    simu_Ks = get_simu_Ks(simu_models, tpoint)
-    for idx, Ks in enumerate(simu_Ks):
-        simu_Ks[idx] = Ks[np.where(np.broadcast_to(model_ori.used_L, simu_Ks[-1].shape) == 1)].flatten()
+    x = torch.linspace(0, int(model_ori.t_observed[-1].item()), int(model_ori.t_observed[-1].item() + 1)).to('cpu')
+    mae_total, mean_total = [], []
 
-    mae = [np.abs(Ks - simu_Ks[-1]) for Ks in simu_Ks][:-1]
-    mean = [np.mean(item) for item in mae]
-    return mae, mean
+    for time in tqdm(x):
+        simu_Ks = get_simu_Ks(simu_models, time)
+
+        for idx, Ks in enumerate(simu_Ks):
+            simu_Ks[idx] = Ks[np.where(np.broadcast_to(model_ori.used_L, simu_Ks[-1].shape) == 1)].flatten()
+
+        mae = [np.abs(Ks - simu_Ks[-1]) for Ks in simu_Ks][:-1]
+        mean = [np.mean(item) for item in mae]
+    
+        mae_total.append(mae)
+        mean_total.append(mean)
+    
+    return mae_total, mean_total

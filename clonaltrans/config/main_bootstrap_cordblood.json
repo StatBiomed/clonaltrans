@@ -9,10 +9,10 @@
     },
 
     "base_trainer": {
-        "save_dir": "/ssd/users/mingzegao/clonaltrans/revision_1"
+        "save_dir": "/ssd/users/mingzegao/clonaltrans/trials/revision_1"
     },
 
-    "model_path": "/ssd/users/mingzegao/clonaltrans/trails/checkpoints/CordBloodDynamicRates/0603_121235/model_last.pt",
+    "model_path": "/ssd/users/mingzegao/clonaltrans/trials/original/checkpoints/CordBloodDynamicRates/0603_121235/model_last.pt",
     "concurrent": 35,
     "epoch": 25
 

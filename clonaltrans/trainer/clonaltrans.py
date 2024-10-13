@@ -39,7 +39,6 @@ class CloneTranModel(nn.Module):
 
         self.t_observed = t_observed        
         self.config = config
-        self.writer = writer
         self.scaling_factor = torch.tensor(config['user_trainer']['scaling_factor'], dtype=torch.float32).to(gpu_id)
 
         self.K_type = config['arch']['args']['K_type']
@@ -49,6 +48,7 @@ class CloneTranModel(nn.Module):
         if self.trainer_type == 'training':
             self.logger = config['data_loader']['args']['logger']
             self.model_id = 0.0
+            self.writer = writer
 
         elif self.trainer_type == 'bootstrapping':
             self.sample_N = sample_N
@@ -264,7 +264,7 @@ class CloneTranModel(nn.Module):
                 l5.item() / self.config['user_trainer']['alphas'][5],
                 np.sum([(SmoothL1(self.y_pred[i], self.N[i]) / self.scaling_factor[i]).item() for i in range(1, self.N.shape[0])]),
             ],
-            epoch, self.writer
+            epoch, self.writer if self.trainer_type == 'training' else None
         )
         pbar.set_description(descrip)
 
@@ -293,7 +293,9 @@ class CloneTranModel(nn.Module):
             losses.append(loss.cpu().detach().numpy())
             
             self.optimizer.step()
-            self.writer.add_scalar("LearningRate", self.optimizer.param_groups[0]['lr'], epoch)
+
+            if self.trainer_type == 'training':
+                self.writer.add_scalar("LearningRate", self.optimizer.param_groups[0]['lr'], epoch)
 
             if self.scheduler is not None:
                 self.scheduler.step()

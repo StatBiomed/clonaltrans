@@ -19,9 +19,9 @@ def simulation_const(
     K, # (num_clones, num_populations, num_populations)
     L,
     config,
-    scaling_factor=None,
     t_simu=torch.tensor([0.0, 1.0, 2.0, 3.0]), 
     y=None,
+    noise_level=None
 ):
     assert config['arch']['args']['K_type'] == 'const', 'const config file shoule be provided'
     K = K.to(config['system']['gpu_id'])
@@ -32,14 +32,13 @@ def simulation_const(
     solver.block.K1 = Parameter(torch.sqrt(K * solver.block.K1_mask), requires_grad=True)
     solver.block.K2 = Parameter(torch.diagonal(K, dim1=-2, dim2=-1), requires_grad=True)
 
-    N = solver(y, t_simu)
+    N_simu = solver(y, t_simu)
 
-    if scaling_factor != None:
-        for time in range(1, N.shape[0]):
-            N[time] += (torch.normal(0, 2, size=(N.shape[1], N.shape[2])) * scaling_factor[time]).to(N.get_device())
+    if noise_level != None:
+        N_simu[1:] += torch.randn_like(N_simu[1:]) * (N_simu[1:].abs() * noise_level / 100)
+        N_simu[1:] = torch.clamp(N_simu[1:], min=0)
 
-        N[torch.where(N < 0)] = 0
-    return N
+    return N_simu
 
 def simulation_dyna(
     K1_encode,
@@ -49,7 +48,8 @@ def simulation_dyna(
     L,
     config,
     t_simu=torch.tensor([0.0, 1.0, 2.0, 3.0]), 
-    y=None
+    y=None,
+    noise_level=None
 ):
     assert config['arch']['args']['K_type'] == 'dynamic', 'dynamic config file shoule be provided'
 
@@ -66,4 +66,10 @@ def simulation_dyna(
     solver.block.K2_encode = Parameter(K2_encode, requires_grad=True)
     solver.block.K2_decode = Parameter(K2_decode, requires_grad=True)
 
-    return solver(y, t_simu)
+    N_simu = solver(y, t_simu)
+
+    if noise_level != None:
+        N_simu[1:] += torch.randn_like(N_simu[1:]) * (N_simu[1:].abs() * noise_level / 100)
+        N_simu[1:] = torch.clamp(N_simu[1:], min=0)
+
+    return N_simu
