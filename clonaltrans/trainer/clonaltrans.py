@@ -266,12 +266,14 @@ class CloneTranModel(nn.Module):
             ],
             epoch, self.writer if self.trainer_type == 'training' else None
         )
-        pbar.set_description(descrip)
 
         loss = loss_obs + l0 + l1 + l2 + l3 + l4 + l5
 
         if self.trainer_type == 'training':
-            self.logger.info(f'Epoch: {epoch}, Loss: {loss.item():.3f}, Obs: {loss_obs.item():.3f}, Nan: {num_nan}/{num_all}, L0: {l0.item():.3f}, L1: {l1.item():.3f}, L2: {l2.item():.3f}, L3: {l3.item():.3f}, L4: {l4.item():.3f}, L5: {l5.item():.3f}')    
+            # self.logger.info(f'Epoch: {epoch}, Loss: {loss.item():.3f}, Obs: {loss_obs.item():.3f}, Nan: {num_nan}/{num_all}, L0: {l0.item():.3f}, L1: {l1.item():.3f}, L2: {l2.item():.3f}, L3: {l3.item():.3f}, L4: {l4.item():.3f}, L5: {l5.item():.3f}')
+            descrip = f'Epoch: {epoch}, Loss: {loss.item():.3f}, Obs: {loss_obs.item():.3f}, Nan: {num_nan}/{num_all}, L0: {l0.item():.3f}, L1: {l1.item():.3f}, L2: {l2.item():.3f}, L3: {l3.item():.3f}, L4: {l4.item():.3f}, L5: {l5.item():.3f}'
+
+        pbar.set_description(descrip)
         
         loss.backward()
         return loss
@@ -317,8 +319,8 @@ class CloneTranModel(nn.Module):
                         for param_group in self.optimizer.param_groups:
                             param_group['lr'] = lr
 
-        if losses[-1] < min_loss:
-            torch.save(self.model.state_dict(), os.path.join(self.config.save_dir, f'model_last.cpt'))
+        # if losses[-1] < min_loss:
+        #     torch.save(self.model.state_dict(), os.path.join(self.config.save_dir, f'model_last.cpt'))
 
         if self.trainer_type in ["bootstrapping", "simulations"] and os.path.exists(os.path.join(self.config.save_dir, f'model_cp_best.cpt')):
             os.remove(os.path.join(self.config.save_dir, f'model_cp_best.cpt'))

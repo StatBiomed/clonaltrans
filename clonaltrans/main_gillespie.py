@@ -77,6 +77,11 @@ def run_model(config):
     logger.info('Preparing candidate transition rates for meta-clones.\n')
 
     model_ori = torch.load(config['model_path'], map_location='cpu')
+
+    if 'clipping' not in model_ori.config['arch']['args']:
+        model_ori.config['arch']['args']['clipping'] = False
+        model_ori.model.block.clipping = False
+
     time_all = np.arange(model_ori.t_observed[0].cpu(), model_ori.t_observed[-1].cpu() + config['time_interval'], config['time_interval'])
     time_all = np.round(time_all, 3)
     

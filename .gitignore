@@ -7,12 +7,12 @@ __pycache__/
 *.so
 
 cospar_files
-trails
-revision_1
-revision_1_nni
+trials
 manuscript_figs
 datasets
-notebooks
+notebooks/original
+notebooks/revision_1
+notebooks/data
 
 # Distribution / packaging
 .Python

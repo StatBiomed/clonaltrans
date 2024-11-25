@@ -29,7 +29,7 @@ def run_model(
         activation=config['arch']['args']['activation'], 
         K_type=config['arch']['args']['K_type'],
         adjoint=config['user_trainer']['adjoint'],
-        clipping=config['arch']['args']['clipping']
+        clipping=config['arch']['args']['clipping'] if 'clipping' in self.config['arch']['args'] else False
     ).to(config['system']['gpu_id'])
 
     if config['optimizer']['scheduler_type'] == 'MultiStepLR':

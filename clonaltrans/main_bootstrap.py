@@ -95,7 +95,7 @@ class Bootstrapping(nn.Module):
             activation=self.config['arch']['args']['activation'], 
             K_type=self.config['arch']['args']['K_type'],
             adjoint=self.config['user_trainer']['adjoint'],
-            clipping=self.config['arch']['args']['clipping']
+            clipping=self.config['arch']['args']['clipping'] if 'clipping' in self.config['arch']['args'] else False
         ).to(gpu_id)
 
         self.logger.info(f'Running model ID: {model_id}')
@@ -114,6 +114,12 @@ class Bootstrapping(nn.Module):
         
         else:
             raise ValueError('Invalid scheduler_type, please choose from AutoAdaptive or MultiStepLR')
+
+        os.mkdir(os.path.join(self.save_dir, 'models', str(model_id)))
+        self.save_dir = os.path.join(self.save_dir, 'models', str(model_id))
+        self.config._save_dir = self.save_dir
+
+        print (self.config.save_dir)
 
         trainer = CloneTranModel(
             N=self.N.to(gpu_id), 
@@ -143,7 +149,7 @@ class Bootstrapping(nn.Module):
             except: trainer.trainable = False
 
             if trainer.trainable:
-                torch.save(trainer, os.path.join(self.save_dir, 'models', f'{trainer.model_id}.pt'))
+                torch.save(trainer, os.path.join(self.save_dir, f'{trainer.model_id}.pt'))
         
         torch.cuda.empty_cache()
 
@@ -154,6 +160,12 @@ def run_model(config):
     logger.info('Estimating confidence intervals of parameters using bootstrapping method.\n')
 
     model_ori = torch.load(config['model_path'], map_location='cpu')
+
+    # model_ori.config['user_trainer']['weighted_rate'] = True
+    if 'clipping' not in model_ori.config['arch']['args']:
+        model_ori.config['arch']['args']['clipping'] = False
+        model_ori.model.block.clipping = False
+
     boots = Bootstrapping(model_ori, config, logger)
 
     if config['calibrate']: boots.process([torch.ones(boots.N.shape), 0, 0])
