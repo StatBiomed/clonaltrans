@@ -68,23 +68,36 @@ dependencies:
   - zstd=1.5.5=hc292b87_0
   - pip:
       - absl-py==2.1.0
+      - adata-query==0.0.2
+      - aiohappyeyeballs==2.4.3
+      - aiohttp==3.10.10
+      - aiosignal==1.3.1
       - anndata==0.10.5.post1
+      - annoy==1.17.3
+      - annoyance==0.0.18
       - anyio==4.2.0
       - argon2-cffi==23.1.0
       - argon2-cffi-bindings==21.2.0
       - array-api-compat==1.4.1
       - arrow==1.3.0
+      - astor==0.8.1
       - asttokens==2.4.1
       - async-lru==2.0.4
+      - async-timeout==4.0.3
       - attrs==23.2.0
+      - autodevice==0.1.0
       - babel==2.14.0
       - beautifulsoup4==4.12.3
       - bleach==6.1.0
       - cachetools==5.3.2
+      - cell-perturb==0.0.1rc1
+      - cellplots==0.0.1rc0
       - certifi==2024.2.2
       - cffi==1.16.0
       - charset-normalizer==3.3.2
       - click==8.1.7
+      - cloudpickle==3.0.0
+      - colorama==0.4.6
       - colorcet==3.1.0
       - comm==0.2.1
       - contourpy==1.2.0
@@ -99,10 +112,12 @@ dependencies:
       - executing==2.0.1
       - fastcluster==1.2.6
       - fastjsonschema==2.19.1
-      - filelock==3.13.1
+      - filelock==3.11.0
       - fonttools==4.49.0
       - fqdn==1.5.1
+      - frozenlist==1.4.1
       - fsspec==2024.2.0
+      - geomloss==0.2.6
       - get-annotations==0.1.2
       - grpcio==1.62.0
       - gseapy==1.1.2
@@ -121,6 +136,7 @@ dependencies:
       - jedi==0.19.1
       - jinja2==3.1.3
       - joblib==1.3.2
+      - json-tricks==3.17.3
       - json5==0.9.14
       - jsonpointer==2.4
       - jsonschema==4.21.1
@@ -137,8 +153,10 @@ dependencies:
       - jupyterlab-pygments==0.3.0
       - jupyterlab-server==2.25.3
       - jupyterlab-widgets==3.0.10
+      - keopscore==2.2.3
       - kiwisolver==1.4.5
       - leidenalg==0.10.2
+      - licorice-font==0.0.3
       - llvmlite==0.42.0
       - loompy==3.0.7
       - markdown==3.5.2
@@ -148,12 +166,15 @@ dependencies:
       - mistune==3.0.2
       - mizani==0.11.0
       - mpmath==1.3.0
+      - multidict==6.1.0
       - natsort==8.4.0
       - nbclient==0.9.0
       - nbconvert==7.16.0
       - nbformat==5.9.2
       - nest-asyncio==1.6.0
       - networkx==3.2.1
+      - neural-diffeqs==0.3.3
+      - nni==3.0
       - notebook==7.1.0
       - notebook-shim==0.2.4
       - numba==0.59.0
@@ -180,25 +201,33 @@ dependencies:
       - pandocfilters==1.5.1
       - parso==0.8.3
       - patsy==0.5.6
+      - pdfkit==1.0.0
       - pexpect==4.9.0
       - pillow==10.2.0
       - platformdirs==4.2.0
       - plotnine==0.13.1
+      - prettytable==3.11.0
       - prometheus-client==0.20.0
       - prompt-toolkit==3.0.43
+      - propcache==0.2.0
       - protobuf==4.25.3
       - psutil==5.9.8
       - ptyprocess==0.7.0
       - pure-eval==0.2.2
       - pyarrow==15.0.0
       - pybedtools==0.10.0
+      - pybind11==2.13.6
       - pycparser==2.21
+      - pydk==0.0.54
       - pygments==2.17.2
+      - pykeops==2.2.3
       - pynndescent==0.5.11
       - pyparsing==3.1.1
       - pysam==0.22.1
       - python-dateutil==2.8.2
       - python-json-logger==2.0.7
+      - pythonwebhdfs==0.2.3
+      - pytorch-lightning==2.4.0
       - pytz==2024.1
       - pyyaml==6.0.1
       - pyzmq==25.1.2
@@ -206,10 +235,12 @@ dependencies:
       - qtpy==2.4.1
       - referencing==0.33.0
       - requests==2.31.0
+      - responses==0.25.3
       - rfc3339-validator==0.1.4
       - rfc3986-validator==0.1.1
       - rpds-py==0.18.0
-      - scanpy==1.9.8
+      - scanpy==1.9.3
+      - schema==0.7.7
       - scikit-learn==1.4.1.post1
       - scikit-misc==0.3.1
       - scipy==1.12.0
@@ -217,6 +248,7 @@ dependencies:
       - seaborn==0.13.2
       - send2trash==1.8.2
       - session-info==1.0.0
+      - simplejson==3.19.3
       - six==1.16.0
       - sniffio==1.3.0
       - soupsieve==2.5
@@ -233,24 +265,34 @@ dependencies:
       - tinycss2==1.2.1
       - tomli==2.0.1
       - torch==2.2.0
+      - torch-adata==0.1.0
+      - torch-nets==0.1.0
       - torchaudio==2.2.0
       - torchdiffeq==0.2.3
+      - torchmetrics==1.4.3
       - torchvision==0.17.0
       - tornado==6.4
       - tqdm==4.66.2
       - traitlets==5.14.1
+      - trampoline==0.1.2
       - triton==2.2.0
+      - typeguard==4.1.2
       - types-python-dateutil==2.8.19.20240106
       - typing-extensions==4.9.0
       - tzdata==2024.1
       - umap-learn==0.5.5
       - uri-template==1.3.0
       - urllib3==2.2.1
+      - vinplots==0.0.75
       - wcwidth==0.2.13
       - webcolors==1.13
       - webencodings==0.5.1
+      - webfiles==0.0.1
       - websocket-client==1.7.0
+      - websockets==13.0.1
       - werkzeug==3.0.1
+      - wget==3.2
       - widgetsnbextension==4.0.10
+      - yarl==1.15.4
       - zipp==3.17.0
 prefix: /ssd/users/mingzegao/.conda/envs/clonetrans

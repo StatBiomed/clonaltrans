@@ -73,7 +73,7 @@ def get_cospar_bias(adata_cospar, adata_meta, progenitor, fate):
     cospar_bias = cospar_bias[f'fate_map_transition_map_{fate}'].values
     return cospar_bias
 
-def get_transit_path(model, cluster_names, progenitor, fate):
+def get_transit_path(model, cluster_names, progenitor, fate, selected_fates):
     paga = pd.read_csv(os.path.join(
         model.config['data_loader']['args']['data_dir'], model.config['data_loader']['args']['graphs'],
     ), index_col=0).astype(np.int32)
@@ -85,7 +85,7 @@ def get_transit_path(model, cluster_names, progenitor, fate):
         cluster_names
     )
 
-    selected_fates = ["Ery", "Meg", "Eos", "Mast", "DC", "Mono", "Neu", "pDC", "Ly", 'Baso']
+    # selected_fates = ["Ery", "Meg", "Eos", "Mast", "DC", "Mono", "Neu", "pDC", "Ly", 'Baso']
     transit_paths_all = []
 
     for selected_fate in selected_fates:
@@ -119,21 +119,21 @@ def plt_function(
     colors=['blue']
 ):
     corr, p_value = pearsonr(tracer_bias, cospar_bias)
-    sns.scatterplot(x=tracer_bias, y=cospar_bias, ax=axes, color=colors, s=100)
+    sns.scatterplot(x=tracer_bias, y=cospar_bias, ax=axes, color=colors, s=300)
     axes.plot(
         [tracer_bias.min(), tracer_bias.max()], 
         [tracer_bias.min(), tracer_bias.max()], 
-        linestyle="--", color="grey", zorder=0
+        linestyle="--", color="grey", zorder=0, linewidth=1
     )
     
     axes.spines['top'].set_visible(False)
     axes.spines['right'].set_visible(False)
-    axes.tick_params(axis='both', labelsize=17)
+    axes.tick_params(axis='both', labelsize=22)
 
-    axes.set_title(f'Fate bias {progenitor} \u2192 {fate}', fontsize=18)
-    axes.set_xlabel(xlabel, fontsize=18)
-    axes.set_ylabel(ylabel, fontsize=18)
-    axes.text(0.3, 0.1, f'$Pearson \; Corr = {corr:.3f}$', fontsize=18, transform=axes.transAxes)
+    axes.set_title(f'Fate bias {progenitor} \u2192 {fate}', fontsize=20)
+    axes.set_xlabel(xlabel, fontsize=20)
+    axes.set_ylabel(ylabel, fontsize=20)
+    # axes.text(0.3, 0.1, f'$Pearson \; Corr = {corr:.3f}$', fontsize=20, transform=axes.transAxes)
 
 def get_groundtruth_bias(adata_meta, aggre, transit_paths, transit_paths_all, color):
     perc_trails, legend_elements, labels = [], [], []
@@ -173,10 +173,11 @@ def with_cospar(
     model,
     cluster_names,
     gillespie_dir,
+    all_fates,
     save=False
 ):
     aggre = get_fate_prob(model, cluster_names, gillespie_dir)
-    transit_paths, transit_paths_all = get_transit_path(model, cluster_names, progenitor, fate)
+    transit_paths, transit_paths_all = get_transit_path(model, cluster_names, progenitor, fate, selected_fates=all_fates)
 
     cospar_bias = get_cospar_bias(adata_cospar, adata_meta, progenitor, fate)
     tracer_bias = get_tracer_bias(transit_paths, aggre)
@@ -200,10 +201,10 @@ def with_cospar(
     plt_function(perc_trails, cospar_bias, progenitor, fate, axes[1], 'Ground Truth', 'CoSpar', color)
     plt_function(perc_trails, tracer_bias, progenitor, fate, axes[2], 'Ground Truth', 'CLADES', color)
 
-    fig.legend(legend_elements, labels, loc='right', fontsize=18, bbox_to_anchor=(1.02, 0.5), frameon=False)
+    fig.legend(legend_elements, labels, loc='right', fontsize=15, bbox_to_anchor=(1.2, 0.5), frameon=False)
 
     if save:
-        plt.savefig(f'./{save}.svg', dpi=600, bbox_inches='tight', transparent=True)
+        plt.savefig(f'./{save}.svg', dpi=300, bbox_inches='tight', transparent=True)
 
 def with_cospar_all(
     adata_cospar,
@@ -212,6 +213,7 @@ def with_cospar_all(
     cluster_names,
     gillespie_dir,
     selected_fates,
+    all_fates,
     show_fate=True,
     save=False
 ):
@@ -226,7 +228,7 @@ def with_cospar_all(
     for progenitor in keys:
         for fate in list(aggre[clones][progenitor].keys()):
             if fate in selected_fates:
-                transit_paths, transit_paths_all = get_transit_path(model, cluster_names, progenitor, fate)
+                transit_paths, transit_paths_all = get_transit_path(model, cluster_names, progenitor, fate, selected_fates=all_fates)
 
                 cospar_bias = get_cospar_bias(adata_cospar, adata_meta, progenitor, fate)
                 tracer_bias = get_tracer_bias(transit_paths, aggre)
@@ -267,7 +269,7 @@ def with_cospar_all(
         for idx, fate in enumerate(remains):
             legend_elements.append(Line2D([0], [0], marker='o', color=color[np.where(np.array(cluster_names) == fate)[0][0]], markersize=7, linestyle=''))
             labels.append(fate)
-        fig.legend(legend_elements, labels, loc='right', fontsize=18, bbox_to_anchor=(2, 0.5), frameon=False)
+        fig.legend(legend_elements, labels, loc='right', fontsize=18, bbox_to_anchor=(1.8, 0.5), frameon=False)
 
     if save:
         plt.savefig(f'./{save}.svg', dpi=600, bbox_inches='tight', transparent=True)

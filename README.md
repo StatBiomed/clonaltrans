@@ -2,21 +2,25 @@
 
 Repository for CLADES (Clonal Lineage Analysis with Differential Equations and Stochastic Simulations).
 
-It contains the source code, demo data and key results used in the paper. Notebooks with comments are provided within the `results` folder. Also the fitted model and configuration details are provided as well.
+It contains the source code, and the datasets used in the paper, see `clonatrans` and `demo`. <br>
+Notebooks with comments to reproduce the manuscript figures are provided within the `notebooks` folder. <br>
+The configuration details used to train CLADES and the associtaed outputs are stored under `results`.
 
-For **All** path parameters in `./clonaltrans/config` folder, please use **absolute path instead of relative path**.
-
-To reproduce the figures presented in the manuscript, please refer to the `results` folder. We provide separate notebooks for each analysis.
+For **All** path parameters within `./clonaltrans/config` folder, please use **absolute path instead of relative path**.
 
 ## System Requirements
 
-CLADES was tested on Linux platform both with command lines and Jupyter Notebooks.
+CLADES requires PyTorch, please make sure you have access to the GPUs. Other than that, we have provided a few essential packages that are required for the algorithm as well, listed in `requirements.txt`.
 
-The basic Python packages required for the algorithm is listed in `requirements.txt`.
+If there are verson conflicts within your own environment or for the reproducibility purpose, we also provide a complete list of dependencies and pip packages with specified version number that we used in our local environment, see `environments.yml`.
 
-If verson conflicts exist or you are unable to run the alogirhm on your own environment, we also provide a complete list of dependencies and pip packages with specified version number in `environments.yml`.
+## Summary of Time Complexity
 
-All estimated running time mentioned here is based on 1 single GeForce RTX 3090 GPU, if you only have CPUs, the expected running time could be a few folds longer.
+1. Data training stage, the estimated running time for CLADES is around 0.5~1 hour (depending on the size of the dataset and constant/dynamic modes) using 1 single GeForce RTX 3090 GPU.
+
+2. Bootstrapping trials, as it's a multi-processing module that works in parallel, the actual running time varies depending on the number/performance of GPU cards used. Empirically, when using 4 cards to bootstrap 800 times, the expected running time is around 10 hours.
+
+3. Gillespie simulations, it uses CPU only. Though multi-processing technique has been adpoted to speed up the process, the estimated running time is still a few hours (for 1,000 simulations as demonstrated in the manuscript).
 
 ## Installation
 
@@ -32,30 +36,30 @@ To fit the model using clonal data,
 
 1) Data preparation: 
 
-    Please follow the format given in the `demo` folder. Example pipeline to prepare the data are located at `./demo/CordBlood_Refine/prepare_input.ipynb`.
+    We have provided the input files for the datasets used by CLADES, each has 4 separate files. Please follow the format given in the `demo` folder.
 
-    You could directly use data within `demo` folder or use your own data to test the algorithm.
+    If you would like to test your own dataset, the pipeline for generating those files can be found via `./demo/CordBlood_Refine/prepare_input.ipynb` or `./demo/Weinreb/prepare_input.ipynb`.
     
 2) Model configuration:
 
-    Only parameters within the `./clonaltrans/config` folder need to be modified. The parameters are stored in JSON format, and CLADES can be executed with command lines,
+    The configuration files (JSON format) for CLADES are located at `./clonaltrans/config` folder. 
+
+    We have provided here all the config files for both the human cord blood and mouse hematopoiesis dataset, for all analysis: `constant mode` `dynamic mode` `bootstrapping` and `gillespie analysis`, as shown on file names. 
+
+    To run CLADES, please execute the following command, e.g.,
 
     ``` python
-    python ./main.py --config ./config/main.json
+    python ./main.py --config ./config/main_dynamic_cordblood.json
     ```
-
-    Normally the runtime is between 30mins to 1h, depending on the used modes.
 
 For full list of tunable parameters, please refer to the JSON file, here are a few commonly used parameters,
 
 - K_type: 'dynamic' or 'const', whether transition rates are constant value
 - alphas: coefficients of the penalties
-- no_proliferation_pops: please provide binary labels of fully differentiated populations which should NOT have strong proliferation ability
-- no_apoptosis_pops: please provide binary labels of non differentiated populations which should have strong proliferation ability
+- no_proliferation_pops: please provide binary labels of fully differentiated populations which should NOT have strong proliferation ability, e.g., terminal states
+- no_apoptosis_pops: please provide binary labels of non differentiated populations which should have strong proliferation ability, e.g., early progenitors
 - t_observed: please provide real experimental time points
 - scaling_facotr: please provide the scaling factor to total counts for each time points 
-- ub_for_prol: upper bound for per capita proliferation rates
-- ub_for_diff: upper bound for per capita differentiation rates
 - learning_rate: 1e-3 for dynamic mode and 5e-2 for const mode
 
 ## Bootstrapping for Confidence Intervals
@@ -73,8 +77,6 @@ Parameters within JSON file,
 - concurrent: # of boostraps to perform at the same time
 - epoch: # of epochs, for instance, concurrent 5 and epochs 60 means in total the model will be bootstrapped for 300 times
 
-The runtime is approximately a few hours, depending on number of bootstrap trails you need.
-
 ## Gillespie Algorithms (Stochastic Simulation)
 
 To run Gillespie simulation given a model,
@@ -86,5 +88,3 @@ python ./main_gillespie.py --config ./config/main_gillespie.json
 Parameters within JSON file,
 
 - t_cutoff: we've noticed the Gillespie could run forever for certain circumstances, and this parameter controls the minimum time increment of the algorithm
-
-Usually this process is done within 1 hour.
