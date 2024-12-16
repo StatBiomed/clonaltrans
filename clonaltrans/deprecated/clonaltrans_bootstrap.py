@@ -1,3 +1,10 @@
+'''
+This module is an initial version of the bootstrappping method for the clonaltrans package.
+It is now deprecated and will be removed in the future.
+All the functions have been moved to the trainer.clonaltrans.py module.
+The only purpose of this script is for reading the models trained in an older version of the package.
+'''
+
 import torch
 from torch import nn
 from tqdm import tqdm

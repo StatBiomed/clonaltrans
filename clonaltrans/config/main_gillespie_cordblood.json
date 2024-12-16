@@ -1,15 +1,15 @@
 {
     "name": "CordBloodDynamicGillespie",
     "logger_config_path": "/ssd/users/mingzegao/clonaltrans/clonaltrans/config/logger_config.json",
-    "model_path": "/ssd/users/mingzegao/clonaltrans/trials/original/checkpoints/CordBloodDynamicRates/0603_121235/model_last.pt",
+    "model_path": "/ssd/users/mingzegao/clonaltrans/trials/v1.2.0/checkpoints/CordBloodDynamicRates/1213_100718/model_last.pt",
 
     "time_interval": 0.01,
     "concurrent": 20,
     "epoch": 50,
-    "t_cutoff": 1e-4,
+    "t_cutoff": 0.001,
 
     "base_trainer": {
-        "save_dir": "/ssd/users/mingzegao/clonaltrans/trials/revision_1"
+        "save_dir": "/ssd/users/mingzegao/clonaltrans/trials/v1.2.0"
     }
 
 }

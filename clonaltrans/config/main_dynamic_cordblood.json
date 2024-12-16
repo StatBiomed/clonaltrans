@@ -3,7 +3,7 @@
     "logger_config_path": "/ssd/users/mingzegao/clonaltrans/clonaltrans/config/logger_config.json",
 
     "system": {
-        "gpu_id": 7,
+        "gpu_id": 3,
         "seed": 42
     },
     
@@ -19,7 +19,7 @@
 
     "base_trainer": {
         "epochs": 1500,
-        "save_dir": "/ssd/users/mingzegao/clonaltrans/trials/revision_1",
+        "save_dir": "/ssd/users/mingzegao/clonaltrans/trials/v1.2.0",
         "verbosity": 2,
         "log_interval": 100
     },
@@ -47,12 +47,11 @@
         "type": "ClonalTransDataLoader",
         "abbreviation": "cordblood", 
         "args":{
-            "data_dir": "/ssd/users/mingzegao/clonaltrans/datasets/CordBlood_Refine/data",
+            "data_dir": "/ssd/users/mingzegao/clonaltrans/demo/Human_CordBlood",
             "num_populations": 12,
             "annots": "annotations.csv",
-            "graphs": "graph_table.csv",
-            "day_zero": "initial_condition.csv",
-            "cell_counts": "kinetics_array_correction_factor.txt"
+            "graphs": "paga_transitions.csv",
+            "cell_counts": "kinetics_corrected.txt"
         }
     }
 

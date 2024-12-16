@@ -76,10 +76,14 @@ def get_K_total(model, tpoints=None):
     if tpoints is None:
         x = torch.linspace(0, int(model.t_observed[-1].item()), int(model.t_observed[-1].item() + 1)).to(gpu)
     else:
-        x = tpoints
+        x = torch.tensor(tpoints)
 
-    for i in range(len(x)):
+    pbar = tqdm(range(len(x)))
+
+    for i in pbar:
+        pbar.set_description(f'Calculating transition rates for time point {x[i]:.2f}')
         masks = get_post_masks(model, x[i])
+
         K = model.get_matrix_K(K_type=K_type, eval=True, tpoint=x[i]).detach().cpu().numpy()
         K[masks[0], masks[1], :] = 0
         K_total.append(K)

@@ -8,7 +8,6 @@ Clone 5,Mid Erythroid
 Clone 6,Late Erythroid
 Clone 7,NMP
 Clone 8,Mono precur
-Clone 9,Monocyte
-Clone 10,DC precursor
-Clone 11,DC
-Clone BG,
+Clone 10,Monocyte
+Clone BG,DC precursor
+,DC

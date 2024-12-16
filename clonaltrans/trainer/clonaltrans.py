@@ -67,7 +67,7 @@ class CloneTranModel(nn.Module):
         self.rate_weights = total_counts / torch.sum(total_counts)
 
         if self.trainer_type == 'training':
-            self.logger.info(f'Rate weights for each meta-clones: {self.rate_weights}')
+            self.logger.info(f'Rate weights for each meta-clone: {list(np.round(self.rate_weights.detach().cpu().numpy(), 2))}')
 
     def get_penalty_masks(self):
         self.used_L = self.L.clone()
@@ -254,7 +254,7 @@ class CloneTranModel(nn.Module):
         )
 
         descrip = pbar_tb_description(
-            ['ID', 'L/K2Pro', 'L/Pop0', 'L/DiffBG', 'L/K2Neg', 'L/K2Apop', 'L/Recon'],
+            ['ID', 'L/l1', 'L/l2', 'L/l3', 'L/l4', 'L/l5', 'L/Recon'],
             [ 
                 self.model_id, 
                 l1.item() / self.config['user_trainer']['alphas'][1],

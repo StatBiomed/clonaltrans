@@ -10,9 +10,9 @@ prog_Ly_pDC,Clone 7
 prog_Meg_Ery,Clone 8
 prog_Mono,Clone 9
 early_prog_Neu,Clone 10
-prog_Neu,Clone 11
-Baso,Clone 12
-DC,Clone BG
+prog_Neu,Clone BG
+Baso,
+DC,
 Eos,
 Ery,
 Ly,

@@ -11,7 +11,7 @@ class ClonalTransDataLoader():
         logger,
         annots,
         graphs,
-        day_zero,
+        # day_zero,
         cell_counts
     ):
         self.data_dir = data_dir
@@ -20,7 +20,7 @@ class ClonalTransDataLoader():
 
         self.annotations = annots
         self.trans_graph = graphs
-        self.day_zero = day_zero
+        # self.day_zero = day_zero
         self.cell_counts = cell_counts
 
         self.paga, self.array_total = self.read_datasets()
@@ -38,12 +38,12 @@ class ClonalTransDataLoader():
         self.logger.info(f'Input cell data (num_timepoints {array_ori.shape[0]}, num_clones {array_ori.shape[1]}, num_populations {array_ori.shape[2]}) loaded.')
 
         # init HSCs in Day 0
-        init_con = pd.read_csv(os.path.join(self.data_dir, self.day_zero), index_col=0).astype(np.float32)
-        day_zero = np.zeros((array_ori.shape[1], array_ori.shape[2]))
-        day_zero[:, 0] = init_con['leiden'].values
+        # init_con = pd.read_csv(os.path.join(self.data_dir, self.day_zero), index_col=0).astype(np.float32)
+        # day_zero = np.zeros((array_ori.shape[1], array_ori.shape[2]))
+        # day_zero[:, 0] = init_con['leiden'].values
 
-        array_ori = torch.cat((torch.tensor(day_zero, dtype=torch.float32).unsqueeze(0), array_ori), axis=0)
-        self.logger.info(f'Day 0 has been added. Input data shape: {array_ori.shape}')
+        # array_ori = torch.cat((torch.tensor(day_zero, dtype=torch.float32).unsqueeze(0), array_ori), axis=0)
+        # self.logger.info(f'Day 0 has been added. Input data shape: {array_ori.shape}')
 
         return torch.tensor(paga.values, dtype=torch.float32), array_ori
 

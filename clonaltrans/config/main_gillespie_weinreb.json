@@ -1,15 +1,15 @@
 {
     "name": "WeinrebDynamicGillespie",
     "logger_config_path": "/ssd/users/mingzegao/clonaltrans/clonaltrans/config/logger_config.json",
-    "model_path": "/ssd/users/mingzegao/clonaltrans/trials/original/checkpoints/WeinrebDynamicRates/0301_112802/model_last.pt",
+    "model_path": "/ssd/users/mingzegao/clonaltrans/trials/v1.2.0/checkpoints/WeinrebDynamicRates/1213_164212/model_last.pt",
 
     "time_interval": 0.01,
     "concurrent": 20,
     "epoch": 50,
-    "t_cutoff": 1e-4,
+    "t_cutoff": 1e-3,
 
     "base_trainer": {
-        "save_dir": "/ssd/users/mingzegao/clonaltrans/trials/revision_1"
+        "save_dir": "/ssd/users/mingzegao/clonaltrans/trials/v1.2.0"
     }
 
 }
