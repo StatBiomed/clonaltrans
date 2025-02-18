@@ -6,13 +6,11 @@ __pycache__/
 # C extensions
 *.so
 
-cospar_files
 trials
 manuscript_figs
 datasets
-notebooks/original
-notebooks/revision_1
-notebooks/data
+deprecated
+notebooks/Revision_1_Figs
 
 # Distribution / packaging
 .Python

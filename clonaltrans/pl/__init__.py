@@ -29,8 +29,8 @@ from .gillespie_tree import (
 )
 
 from .benchmark import (
-    with_cospar,
-    with_cospar_all,
+    compare_gt_pairwise,
+    compare_gt_all,
     get_transit_path,
     get_tracer_bias
 )
