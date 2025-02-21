@@ -20,73 +20,124 @@ class GillespieDivision():
     ) -> None:
         super(GillespieDivision, self).__init__()
 
-        self.num_clones = K_total.shape[1]
         self.epoch = config['epoch']
         self.concurrent = config['concurrent']
+        self.t_cutoff = config['t_cutoff']
         self.save_dir = config.save_dir
-        self.config = config
+        
+        self.init_cluster_index = config['init_cluster_index']
 
         os.mkdir(os.path.join(self.save_dir, 'models'))
 
         self.K_total = K_total # (num_time_points, num_clones, num_pops, num_pops)
         self.time_all = time_all
         self.logger = logger
+
         self.cluster_names = pd.read_csv(os.path.join(
             model.config['data_loader']['args']['data_dir'], 
             model.config['data_loader']['args']['annots']
-        ))['populations'][:K_total.shape[2]]
+        ))['populations'][:K_total.shape[2]].values
+
+        self.clone_names = pd.read_csv(os.path.join(
+            model.config['data_loader']['args']['data_dir'], 
+            model.config['data_loader']['args']['annots']
+        ))['clones'][:K_total.shape[1]].values
+
+        self.init_cell_counts = model.N.squeeze().detach().cpu().numpy()[0] # (num_clones, num_pops)
+
+        self.logger.info(f'Cluster names: {list(self.cluster_names)}')
+        self.logger.info(f'Clone names: {list(self.clone_names)}')
 
         self.L = model.used_L.squeeze()
         self.L.fill_diagonal_(0)
         self.L = self.L.detach().cpu().numpy()
 
     def bootstart(self):
-        multiprocessing.set_start_method('spawn')
-        pbar = tqdm(range(self.num_clones))
+        for idx, clone in enumerate(self.clone_names):
+            self.logger.info(f'Start multiprocessing for {clone} at {time.asctime()}.')
+            gillespie_dir = os.path.join(self.save_dir, 'models', f'{clone}')
 
-        for clone in pbar:
-            self.logger.info(f'Start multiprocessing for meta-clone {clone} at {time.asctime()}.')
-            gillespie_dir = os.path.join(self.save_dir, 'models', f'clone_{clone}')
             if not os.path.exists(gillespie_dir):
                 os.mkdir(gillespie_dir)
 
+            sampled_keys = self.get_init_cluster(self.init_cell_counts[idx])
+            self.logger.info(f'Sampled initial keys for {clone} with shape {sampled_keys.shape}: {list(sampled_keys[:10])}')
+
             with multiprocessing.Pool(self.concurrent) as pool:
 
-                for epoch in range(self.epoch):
+                for ep in range(self.epoch):
                     for res in pool.imap_unordered(
                         self.process, 
-                        self.get_buffer(epoch, self.K_total[:, clone, :, :], gillespie_dir)
+                        self.get_buffer(ep, self.K_total[:, idx, :, :], sampled_keys, gillespie_dir)
                     ):
                         pass
             
-            self.logger.info(f'End multiprocessing for each meta-clone {clone} at {time.asctime()}.')
+            self.logger.info(f'End multiprocessing for {clone} at {time.asctime()}.')
 
-    def get_buffer(self, epoch, K_total, gillespie_dir):
+    def get_init_cluster(self, init_counts):
+        if self.init_cluster_index == 'default':
+            init_conditions = dict(zip(self.cluster_names, init_counts))
+        else:
+            init_conditions = {self.cluster_names[self.init_cluster_index]: init_counts[self.init_cluster_index]}
+
+        probabilities = np.array(list(init_conditions.values()), dtype=float)
+        probabilities /= probabilities.sum()
+
+        return np.random.choice(list(init_conditions.keys()), size=self.epoch * self.concurrent, p=probabilities)
+
+    def get_buffer(self, epoch, K_total, sampled_keys, gillespie_dir):
         buffer = []
         for idx in range(self.concurrent):
-            buffer.append([epoch * self.concurrent + idx, K_total, self.time_all, gillespie_dir])
+            seed = epoch * self.concurrent + idx
+
+            buffer.append(
+                [
+                    seed, 
+                    K_total, 
+                    sampled_keys[seed],
+                    self.time_all, 
+                    gillespie_dir
+                ]
+            )
         return buffer
 
     def process(self, args):
-        seed, K_total, time_all, gillespie_dir = args
-        gillespie_main(seed, K_total, time_all, self.cluster_names, gillespie_dir, self.config, self.L)
+        seed, K_total, sampled_key, time_all, gillespie_dir = args
+
+        gillespie_main(
+            seed, 
+            K_total, 
+            time_all,
+            sampled_key, 
+            self.cluster_names, 
+            gillespie_dir, 
+            self.t_cutoff, 
+            self.L
+        )
 
 def run_model(config):
     logger = config.get_logger('gillespie')
     logger.info('Running Gillespie simulation algorithms.')
     logger.info('Preparing candidate transition rates for meta-clones.\n')
 
+    multiprocessing.set_start_method('spawn')
     model_ori = torch.load(config['model_path'], map_location='cpu')
 
     if 'clipping' not in model_ori.config['arch']['args']:
         model_ori.config['arch']['args']['clipping'] = False
         model_ori.model.block.clipping = False
 
-    time_all = np.arange(model_ori.t_observed[0].cpu(), model_ori.t_observed[-1].cpu() + config['time_interval'], config['time_interval'])
-    time_all = np.round(time_all, 3)
+    assert config['init_cluster_index'] == 'default' or config['init_cluster_index'] < 10, 'Invalid cluster index.'
+    assert config['end_time_point'] == 'default' or config['end_time_point'] > model_ori.t_observed[-1].cpu(), 'Invalid end time point.'
+
+    if config['end_time_point'] == 'default':
+        time_all = np.arange(model_ori.t_observed[0].cpu(), model_ori.t_observed[-1].cpu() + config['time_interval'], config['time_interval'])
+    else:
+        time_all = np.arange(model_ori.t_observed[0].cpu(), config['end_time_point'] + config['time_interval'], config['time_interval'])
     
+    time_all = np.round(time_all, 2)
+
     K_total = get_K_total(model_ori, tpoints=time_all) 
-    logger.info(f'Reference time points are {time_all[:5]}')
     logger.info(f'Dimension of transition rates for this Gillespie trail: {K_total.shape}')
 
     gilles = GillespieDivision(model_ori, config, logger, K_total, time_all)

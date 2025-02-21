@@ -15,16 +15,15 @@ from scipy import stats
 import pandas as pd
 from itertools import combinations, product
 import statsmodels.stats.multitest as smm
-from .metrics import get_clustered_heatmap
 from .base import get_subplot_dimensions
 import copy
 from natsort import natsorted
 
-def get_div_distribution(gillespie_dir, cluster_names):
-    div_path = os.path.join(gillespie_dir, 'res_div.txt')
-    res_div = [[] for i in cluster_names[1:]]
-    res_div = dict(zip(cluster_names[1:], res_div))
+def get_div_distribution(gillespie_dir, cluster_names, init_celltype):
+    div_path = os.path.join(gillespie_dir, 'dist_division_summary.txt')
+    div_dist = dict(zip(cluster_names, [[] for i in cluster_names]))
     num_trails = 0
+    assert type(init_celltype) == list, 'init_celltype must be a list'
 
     with open(div_path, 'r') as f:
         for idx, line in enumerate(f):
@@ -32,21 +31,25 @@ def get_div_distribution(gillespie_dir, cluster_names):
             line = json.loads(line)
             line = ast.literal_eval(line)
             del line['seed']
-            num_trails += 1
 
-            for key in line.keys():
-                res_div[key].extend(line[key])
+            if line['init_celltype'] in init_celltype:
+                del line['init_celltype']
+                num_trails += 1
+
+                for key in line.keys():
+                    div_dist[key].extend(line[key])
     
-    return res_div, num_trails
+    return div_dist, num_trails
 
 def visualize_num_div(
     cluster_names,
     gillespie_dir, 
     clone_name,
+    init_celltype,
     palette='tab20', 
     save=False
 ):
-    res_div, num_trails = get_div_distribution(gillespie_dir, cluster_names)
+    res_div, num_trails = get_div_distribution(gillespie_dir, cluster_names, init_celltype=init_celltype)
     colors = get_hex_colors(palette)
     colors = colors * 2
 
@@ -97,21 +100,23 @@ def get_divisions(target_path, cluster_names):
     
     return num_div, target_path_names[-1]
 
-def number_divisions(G, cluster_names):
-    source = f'{cluster_names[0]}0'
-    target = [f'{name}0' for name in cluster_names[1:]]
-    paths = nx.single_source_shortest_path(G, source)
-    
-    paths_new = {}
-    for item in target:
-        if item in paths.keys():
-            paths_new[item] = paths[item]
-
+def number_divisions(G, init_celltype, cluster_names):
     num_divisions = defaultdict(list)
+    num_divisions['init_celltype'] = init_celltype
+    
+    source = f'{init_celltype}0'
+    paths = nx.single_source_shortest_path(G, source)
 
-    for target in paths_new.keys():
+    paths_valid = {}
+    for item in cluster_names:
+        if f'{item}0' in paths.keys():
+            paths_valid[f'{item}0'] = paths[f'{item}0']
+
+    del paths_valid[source]
+
+    for target in paths_valid.keys():
         if not target.startswith('Death') and not target.startswith(source[:-1]):
-            res, node_key = get_divisions(paths_new[target], cluster_names)
+            res, node_key = get_divisions(paths_valid[target], cluster_names)
             num_divisions[node_key].append(res)
 
     return dict(num_divisions)
@@ -123,7 +128,7 @@ def multi_divisions(args):
         num_divisions = visualize_gtree(seed, cluster_names, gillespie_dir=gillespie_dir)
         num_divisions['seed'] = seed
         
-        with open(f'{gillespie_dir}/res_div.txt', 'a') as f1:
+        with open(f'{gillespie_dir}/dist_division_summary.txt', 'a') as f1:
             json.dump(str(num_divisions), f1)
             f1.write('\n')
 
@@ -131,8 +136,8 @@ def get_num_div(cluster_names, gillespie_dir='./gillespie'):
     try: multiprocessing.set_start_method('fork')
     except: pass
 
-    if os.path.exists(f'{gillespie_dir}/res_div.txt'):
-        os.remove(f'{gillespie_dir}/res_div.txt')
+    if os.path.exists(f'{gillespie_dir}/dist_division_summary.txt'):
+        os.remove(f'{gillespie_dir}/dist_division_summary.txt')
 
     num_boots = int(len(os.listdir(gillespie_dir)) / 3)
     clone = gillespie_dir.split('/')[-2:]
@@ -177,14 +182,17 @@ def visualize_gtree(
     cluster_colors['Death'] = 'black'
     time_stamps = {}
 
-    G = nx.DiGraph()
-    G.add_node(f'{cluster_names[0]}0', cluster=cluster_names[0])
-
     num_of_deaths = 0
     with open(f'{gillespie_dir}/structure_{seed}.txt', 'r') as f:
+        G = nx.DiGraph()
+
         for iters, line in enumerate(f):
             line = json.loads(line)
             line = ast.literal_eval(line)
+
+            if iters == 0:
+                G.add_node(f'{line[0]}0', cluster=line[0])
+                init_celltype = line[0]
 
             if line[2] == 'Prol':
                 G.add_node(line[0] + str(line[3][0]), cluster=line[0])
@@ -236,10 +244,12 @@ def visualize_gtree(
             plt.savefig(f'./gillespie_tree_{seed}.svg', dpi=300, bbox_inches='tight', transparent=True)
 
     else:
-        return number_divisions(G, cluster_names)
+        return number_divisions(G, init_celltype, cluster_names)
 
 def mean_division_to_first(mean_div_distributions, palette='tab20', save=False):
     df = pd.DataFrame(mean_div_distributions)
+    df.replace(0, np.nan, inplace=True)
+
     index = [f'{i}' for i in range(len(mean_div_distributions))]
     index[-1] = 'BG'
     df.index = index
@@ -313,11 +323,17 @@ def succeed_trails_to_first(len_div_distributions, num_trails=None, palette='tab
 
 def clone_dist_diff_plot(div_distributions, ref_model, save=False):
     num_clone, num_pop = ref_model.N.shape[1], ref_model.N.shape[2]
-    stats_tests = np.zeros((int(num_clone * (num_clone - 1) / 2), num_pop - 1))
+    stats_tests = np.zeros((int(num_clone * (num_clone - 1) / 2), num_pop))
     stats_tests[stats_tests == 0] = 'nan'
 
+    anno = pd.read_csv(os.path.join(
+        ref_model.config['data_loader']['args']['data_dir'], 
+        ref_model.config['data_loader']['args']['annots']
+    ))
+    clone_names = anno['clones'][:num_clone]
+
     count, index = 0, []
-    for (c1, c2) in combinations(range(num_clone), 2):
+    for (c1, c2) in combinations(range(len(clone_names)), 2):
         for idx_pop, pop in enumerate(div_distributions[0].keys()):
                 div_c1 = div_distributions[c1][pop]
                 div_c2 = div_distributions[c2][pop]
@@ -325,17 +341,11 @@ def clone_dist_diff_plot(div_distributions, ref_model, save=False):
                 stats_tests[count, idx_pop] = np.mean(div_c1) / np.mean(div_c2) if len(div_c1) > 10 and len(div_c2) > 10 else np.nan
 
         count += 1
+        index.append(f'{clone_names[c1]} / {clone_names[c2]}')
 
-        if c1 == num_clone - 1:
-            c1 = 'BG'
-        if c2 == num_clone - 1:
-            c2 = 'BG'
-        index.append(f'{c1} / {c2}')
-
-    fig, axes = plt.subplots(figsize=(30, 10))
+    fig, axes = plt.subplots(figsize=(45, 15))
     df = pd.DataFrame(data=stats_tests.T, index=list(div_distributions[0].keys()), columns=index)
-    df = df.filter(like='BG')
-    # df = get_clustered_heatmap(df)
+    # df = df.filter(like='BG')
 
     ax = sns.heatmap(df, annot=False, linewidths=.1, cmap='coolwarm', xticklabels=True, yticklabels=True, cbar=True, vmin=-0.5, vmax=2.5)
     plt.title('Fold change of mean # of division events needed to produce the 1st progeny', fontsize=30, pad=15)
@@ -367,7 +377,7 @@ def find_successive_ones(df, row_index):
 
 def get_descendents(model, label, gillespie_dir):
     data = []
-    result_path = os.path.join(gillespie_dir, 'res_div.txt')
+    result_path = os.path.join(gillespie_dir, 'dist_division_summary.txt')
     paga = pd.read_csv(os.path.join(
         model.config['data_loader']['args']['data_dir'], model.config['data_loader']['args']['graphs'],
     ), index_col=0).astype(np.int32)
@@ -388,31 +398,33 @@ def get_descendents(model, label, gillespie_dir):
     
     return data, descendents
 
-def get_fate_prob(model, cluster_names, gillespie_dir):
+def get_fate_prob(model, cluster_names, gillespie_dir, init_celltype):
     aggre = dict()
         
     for directory in natsorted(os.listdir(gillespie_dir)):
-        if directory.startswith('clone'):
+        if directory.startswith('Clone '):
             gillespie_dir_clones = os.path.join(gillespie_dir, directory)
             aggre[directory] = {}
 
-            distribution, counts = get_div_distribution(gillespie_dir_clones, cluster_names)
-            for key in distribution.keys():
-                distribution[key] = len(distribution[key]) / counts
+            distribution, counts = get_div_distribution(gillespie_dir_clones, cluster_names, init_celltype=init_celltype)
+            print (f'Init celltype: {init_celltype}, processed {directory} with {counts} trails')
 
-            aggre[directory][cluster_names[0]] = distribution
-            # aggre[directory][cluster_names[0]] = [list(distribution.keys()), list(distribution.values())]
+            if counts != 0:
+                for key in distribution.keys():
+                    distribution[key] = len(distribution[key]) / counts
 
-            for label in cluster_names[1:]:
-                data, des = get_descendents(model, label, gillespie_dir=gillespie_dir_clones)
+                aggre[directory][init_celltype[0]] = distribution
 
-                if len(des) >= 2:
-                    num = np.zeros(len(des))
-                    for idx, child in enumerate(des):
-                        num[idx] += np.sum([True if child in trail.keys() else False for trail in data])
+                for label in cluster_names[1:]:
+                    if label != init_celltype[0]:
+                        data, des = get_descendents(model, label, gillespie_dir=gillespie_dir_clones)
 
-                    aggre[directory][label] = dict(zip(des, list(num / len(data)) if len(data) != 0 else list(num)))
-                    # aggre[directory][label] = [des, list(num / len(data)) if len(data) != 0 else list(num)]
+                        if len(des) >= 2:
+                            num = np.zeros(len(des))
+                            for idx, child in enumerate(des):
+                                num[idx] += np.sum([True if child in trail.keys() else False for trail in data])
+
+                            aggre[directory][label] = dict(zip(des, list(num / len(data)) if len(data) != 0 else list(num)))
 
     return aggre
 

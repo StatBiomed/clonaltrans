@@ -8,6 +8,9 @@
     "epoch": 50,
     "t_cutoff": 0.001,
 
+    "init_cluster_index": "default",
+    "end_time_point": "default",
+
     "base_trainer": {
         "save_dir": "/ssd/users/mingzegao/clonaltrans/trials/v1.2.0"
     }

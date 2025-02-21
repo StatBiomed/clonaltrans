@@ -13,6 +13,14 @@ from itertools import combinations, product
 from scipy.cluster import hierarchy
 import copy
 
+'''
+If any of the following functions cannot be used directly, please uncomment the following code,
+and replace the path with the correct path to the clonaltrans package.
+
+import sys
+sys.path.append('/ssd/users/mingzegao/clonaltrans/clonaltrans')
+'''
+
 L1loss = nn.L1Loss(reduction='mean')
 
 def mse_corr(model, save=False):
@@ -64,10 +72,12 @@ def clone_specific_K(model, index_clone=0, tpoint=1.0, save=False):
 
     df = transit_K(model, K[index_clone])
     _, axes = plt.subplots(1, 1, figsize=(8, 6))
-    hp = sns.heatmap(df, linewidths=.5, cmap='coolwarm', ax=axes, vmin=-np.max(df.values), vmax=np.max(df.values))
+    
+    # fig = sns.heatmap(df * 100, linewidths=.5, cmap='coolwarm', ax=axes, vmin=-np.max(df.values), vmax=np.max(df.values), annot=True, fmt=".0f")
+    fig = sns.heatmap(df, linewidths=.5, cmap='coolwarm', ax=axes, vmin=-np.max(df.values), vmax=np.max(df.values))
 
     # Access the colorbar object
-    colorbar = hp.collections[0].colorbar
+    colorbar = fig.collections[0].colorbar
     colorbar.ax.yaxis.set_major_locator(ticker.MaxNLocator(integer=True))
     colorbar.ax.tick_params(labelsize=13)
 
@@ -78,6 +88,7 @@ def clone_specific_K(model, index_clone=0, tpoint=1.0, save=False):
 
     plt.xticks(fontsize=13)
     plt.yticks(fontsize=13)
+    plt.grid(False)
 
     if save:
         plt.savefig(f'./{save}.svg', dpi=300, bbox_inches='tight', transparent=True)
@@ -91,25 +102,27 @@ def rates_in_paga(model, save=False):
     ax.spines['right'].set_visible(False)
     
     fig = ax.get_figure()
-    fig.set_figwidth(8) 
-    fig.set_figheight(6)
+    fig.set_figwidth(10) 
+    fig.set_figheight(5)
 
     plt.ylabel('Counts', fontsize=20)
-    plt.xlabel(f'Per capita transition rates ', fontsize=20)
-    plt.title(f'Distributions (Day {model.t_observed[0]} ~ Day {model.t_observed[-1]})', fontsize=20)
+    plt.xlabel(f'Per capita rates', fontsize=20)
+    plt.title(f'Distribution of inferred rates (Day {int(model.t_observed[0])} ~ Day {int(model.t_observed[-1])})', fontsize=20)
     
-    plt.text(
-        0.45, 
-        0.7, 
-        f'Each meta-clone has:\n{used_L.shape[1]} proliferation & \n{np.sum(used_L != 0) - used_L.shape[1]} differentiation rates', 
-        fontsize=20,
-        transform=plt.gca().transAxes
-    )
+    # plt.text(
+    #     0.45, 
+    #     0.7, 
+    #     f'Each meta-clone has:\n{used_L.shape[1]} proliferation & \n{np.sum(used_L != 0) - used_L.shape[1]} differentiation rates', 
+    #     fontsize=20,
+    #     transform=plt.gca().transAxes
+    # )
+
     plt.tick_params(axis='both', labelsize=20)
     plt.yscale('log')
+    plt.grid(False)
 
     if save:
-        plt.savefig(f'./{save}.svg', dpi=600, bbox_inches='tight', transparent=True)
+        plt.savefig(f'./{save}.svg', dpi=300, bbox_inches='tight', transparent=True)
 
 def rates_notin_paga(model, save=False):
     K_total = get_K_total(model)
@@ -150,7 +163,7 @@ def compare_with_bg(model, save=False):
     K_total = get_K_total(model)
 
     if model.config['user_trainer']['weighted_rate']:
-        K_metas = torch.tensor(K_total[:, :-1, :, :]).to(model.gpu_id) * model.rate_weights.unsqueeze(-1).unsqueeze(-1)
+        K_metas = torch.tensor(K_total[:, :-1, :, :]).to('cpu') * model.rate_weights.unsqueeze(-1).unsqueeze(-1)
         x = np.sum(K_metas.detach().cpu().numpy(), axis=1).flatten()
     else:
         x = np.mean(K_total[:, :-1, :, :], axis=1).flatten()
@@ -158,19 +171,25 @@ def compare_with_bg(model, save=False):
     y = K_total[:, -1, :, :].flatten()
 
     corr, p_value = pearsonr(x, y)
-    ax = sns.scatterplot(x=y, y=x, s=20, c='#2c6aab')
+    ax = sns.scatterplot(x=y, y=x, s=20, c='#2c6aab', zorder=1, edgecolor='#2c6aab')
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
 
-    plt.plot([x.min(), x.max()], [x.min(), x.max()], linestyle="--", color="grey")
-    plt.xlabel(f'All cells (Background clone)', fontsize=15)
-    plt.ylabel(f'Mean of {K_total.shape[1] - 1} meta-clones', fontsize=15)
-    plt.text(0.05, 0.85, f'$Pearson \; Corr = {corr:.3f}$', fontsize=13, transform=plt.gca().transAxes)
-    plt.title(f'Comparison of rates (Day {model.t_observed[0]} ~ Day {model.t_observed[-1]})', fontsize=15)
-    plt.tick_params(axis='both', labelsize=13)
+    fig = ax.get_figure()
+    fig.set_figwidth(10) 
+    fig.set_figheight(5)
+
+    plt.plot([x.min(), x.max()], [x.min(), x.max()], linestyle="--", color="grey", linewidth=1, zorder=0)
+    plt.xlabel(f'All cells (Background clone)', fontsize=20)
+    plt.ylabel(f'Meta-clones (weighted mean)', fontsize=20)
+    plt.text(0.05, 0.85, f'$Pearson \; Corr = {corr:.3f}$', fontsize=20, transform=plt.gca().transAxes)
+
+    plt.title(f'Comparison of inferred rates (Day {int(model.t_observed[0])} ~ Day {int(model.t_observed[-1])})', fontsize=20)
+    plt.tick_params(axis='both', labelsize=20)
+    plt.grid(False)
 
     if save is not False:
-        plt.savefig(f'./{save}.svg', dpi=600, bbox_inches='tight', transparent=True)
+        plt.savefig(f'./{save}.svg', dpi=300, bbox_inches='tight', transparent=True)
 
 def clone_rates_diff_plot(
     adjusted_p_values,
@@ -199,47 +218,43 @@ def clone_rates_diff_plot(
             cols.append('{} -> {}'.format(anno['populations'].values[pop1], anno['populations'].values[pop2]))
 
     index = []
-    for (c1, c2) in combinations(range(num_clones), 2):
-        if c1 == num_clones - 1:
-            c1 = 'BG'
-        if c2 == num_clones - 1:
-            c2 = 'BG'
+    for (c1, c2) in combinations(anno['clones'].values[:num_clones], 2):
         index.append(f'{c1} / {c2}')
 
     if plt_type == 'pvalues':
         adjusted_p_values[adjusted_p_values > 0.01] = np.nan
         adjusted_p_values = -np.log10(adjusted_p_values)
-        title = '$-log_{10}$ p-values | Day 3.0'
+        title = '$-log_{10}$ p-values'
 
     if plt_type == 'foldchange':
         adjusted_p_values[adjusted_p_values < 0.1] = np.nan
-        title = 'Foldchange of rates | Day 3.0'
+        title = 'Foldchange of rates'
     
     if plt_type == 'combined':
         adjusted_p_values[0][adjusted_p_values[0] > 0.01] = np.nan
         adjusted_p_values[0][np.where(adjusted_p_values[1] < 0.1)] = np.nan
         adjusted_p_values = -np.log10(adjusted_p_values[0])
-        title = '$-log_{10}$ p-values | Day 4.0'
+        title = '$-log_{10}$ p-values'
 
     df = pd.DataFrame(data=adjusted_p_values, index=cols, columns=index)
     # df = df.filter(like='BG')
-    # df = get_clustered_heatmap(df)
 
     ax = sns.heatmap(df, annot=False, linewidths=.1, cmap='viridis', vmin=0, xticklabels=True, yticklabels=True, cbar=True)
     plt.title(title, fontsize=30, pad=10)
 
     plt.xticks(fontsize=25)
     plt.yticks(fontsize=25)
+    plt.grid(False)
 
     fig = ax.get_figure()
-    fig.set_figwidth(55) 
-    fig.set_figheight(25) 
+    fig.set_figwidth(50) 
+    fig.set_figheight(20) 
 
     cbar = ax.collections[0].colorbar
     cbar.ax.tick_params(labelsize=25)
 
     if save:
-        plt.savefig(f'./{save}.svg', dpi=600, bbox_inches='tight', transparent=True)
+        plt.savefig(f'./{save}.svg', dpi=300, bbox_inches='tight', transparent=True)
 
 def get_rates_avg(model, save: bool = False):
     K_total = np.mean(get_K_total(model), axis=0)
@@ -268,20 +283,6 @@ def get_rates_avg(model, save: bool = False):
 
     if save:
         plt.savefig(f'./{save}.svg', dpi=600, bbox_inches='tight', transparent=True)
-
-def get_clustered_heatmap(df):
-    df = df.fillna(0)
-
-    # Perform hierarchical clustering on rows and columns
-    row_linkage = hierarchy.linkage(df.values, method='ward', metric='euclidean')
-    col_linkage = hierarchy.linkage(df.values.T, method='ward', metric='euclidean')
-    # Reorder rows and columns based on clustering
-    row_order = hierarchy.leaves_list(row_linkage)
-    col_order = hierarchy.leaves_list(col_linkage)
-
-    df = df.iloc[row_order[::-1], col_order[::-1]]
-    df[df == 0] = np.nan
-    return df
 
 def get_fate_clones(adata, aggre):
     aggre_clones = dict()
